@@ -350,13 +350,13 @@ export default function GeometricBackground({ variant = "orb" }: GeometricBackgr
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         time += 0.002; // Very slow time step
 
-        // Orb 1: Blue (Primary)
+        // Orb 1: Blue (Primary) - Enlarged
         const x1 = canvas.width * 0.3 + Math.sin(time * 0.5) * 50;
         const y1 = canvas.height * 0.4 + Math.cos(time * 0.3) * 50;
-        const size1 = Math.min(canvas.width, canvas.height) * 0.6;
+        const size1 = Math.max(canvas.width, canvas.height) * 1.5; // Significantly larger
 
         const g1 = ctx.createRadialGradient(x1, y1, 0, x1, y1, size1);
-        g1.addColorStop(0, `rgba(${primaryColor}, 0.15)`); // Very subtle center
+        g1.addColorStop(0, `rgba(${primaryColor}, 0.15)`); 
         g1.addColorStop(0.5, `rgba(${primaryColor}, 0.05)`);
         g1.addColorStop(1, "rgba(0,0,0,0)");
 
@@ -365,10 +365,10 @@ export default function GeometricBackground({ variant = "orb" }: GeometricBackgr
         ctx.arc(x1, y1, size1, 0, Math.PI * 2);
         ctx.fill();
 
-        // Orb 2: Purple (Secondary/Accent)
+        // Orb 2: Purple (Secondary/Accent) - Enlarged
         const x2 = canvas.width * 0.7 + Math.cos(time * 0.4) * 60;
         const y2 = canvas.height * 0.6 + Math.sin(time * 0.6) * 60;
-        const size2 = Math.min(canvas.width, canvas.height) * 0.5;
+        const size2 = Math.max(canvas.width, canvas.height) * 1.2; // Significantly larger
 
         const g2 = ctx.createRadialGradient(x2, y2, 0, x2, y2, size2);
         // Use a purple override if needed, otherwise secondaryColor

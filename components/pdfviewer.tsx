@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import WebViewer from "@pdftron/webviewer";
 
 interface PDFViewerProps {
   fileUrl: string;
@@ -18,16 +17,18 @@ export default function PDFViewer({ fileUrl }: PDFViewerProps) {
 
     hasInitialized.current = true;         // mark initialized
 
-    WebViewer(
-      {
-        path: "/lib",
-        licenseKey: process.env.NEXT_PUBLIC_PDFTRON_KEY || "",
-        fullAPI: true,
-      },
-      viewerRef.current
-    ).then((inst) => {
-      instanceRef.current = inst;
-      inst.UI.loadDocument(fileUrl);
+    import("@pdftron/webviewer").then((pdftron) => {
+      pdftron.default(
+        {
+          path: "/lib",
+          licenseKey: process.env.NEXT_PUBLIC_PDFTRON_KEY || "",
+          fullAPI: true,
+        },
+        viewerRef.current as HTMLDivElement
+      ).then((inst) => {
+        instanceRef.current = inst;
+        inst.UI.loadDocument(fileUrl);
+      });
     });
   }, []);
 

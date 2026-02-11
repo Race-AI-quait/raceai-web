@@ -10,11 +10,11 @@ import { motion } from "framer-motion";
 
 import { SimpleThemeToggle } from "@/components/theme-toggle";
 import UnifiedInteractiveGrid from "@/components/unified-interactive-grid";
-import CustomCursor from "@/components/custom-cursor";
 import { useUser } from "./context/UserContext";
 import { useProjects } from "@/app/context/ProjectContext";
 import { useChatContext } from "@/app/context/ChatContext";
 import HowItWorks from "@/components/landing/how-it-works";
+import Footer from "@/components/landing/footer";
 
 
 interface AuthFormCardProps {
@@ -39,6 +39,8 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
   const { setProjects } = useProjects();
   const { setChatSessions } = useChatContext();
   const [formData, setFormData] = useState<FormData>({
@@ -66,16 +68,31 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
 
   const validateForm = () => {
     const errors: Partial<FormErrors> = {};
+    
+    // Email Validation
     if (!formData.email) {
       errors.email = "Email is required";
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+    } else if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(formData.email)) {
       errors.email = "Please enter a valid email address";
     }
+
+    // Password Validation
     if (!formData.password) {
       errors.password = "Password is required";
-    } else if (formData.password.length < 8) {
-      errors.password = "Password must be at least 8 characters long";
+    } else {
+      if (formData.password.length < 8) {
+        errors.password = "Password must be at least 8 characters long";
+      } else if (!/[A-Z]/.test(formData.password)) {
+        errors.password = "Password must contain at least one uppercase letter";
+      } else if (!/[a-z]/.test(formData.password)) {
+        errors.password = "Password must contain at least one lowercase letter";
+      } else if (!/[0-9]/.test(formData.password)) {
+        errors.password = "Password must contain at least one number";
+      } else if (!/[!@#$%^&*]/.test(formData.password)) {
+        errors.password = "Password must contain at least one special character (!@#$%^&*)";
+      }
     }
+
     if (isSignUp && formData.password !== formData.confirmPassword) {
       errors.confirmPassword = "Passwords don't match";
     }
@@ -84,8 +101,42 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
   };
 
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const verifyEmail = async () => {
+    setIsLoading(true);
+    setFormErrors(prev => ({ ...prev, submit: "" }));
+    try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/verify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                email: formData.email,
+                code: verificationCode
+            })
+        });
 
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.message || "Verification failed");
+        }
+
+        // Verification success - now treat as login
+        const { user, token } = result;
+         // Save to localStorage for persistence
+        localStorage.setItem("race_ai_user", JSON.stringify(user));
+        localStorage.setItem("race_ai_token", token);
+
+        // Update context
+        updateUser(user);
+        onAuthSuccess(user, true); // Treat as new user for onboarding
+    } catch (error: any) {
+         setFormErrors(prev => ({ ...prev, submit: error.message }));
+    } finally {
+        setIsLoading(false);
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
 
@@ -93,22 +144,9 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
     setFormErrors((prev) => ({ ...prev, submit: "" }));
 
     try {
-      if (isSignUp) {
-        // store in context (no API call)
-
-        updateUser({
-          email: formData.email,
-          password: formData.password,
-        });
-
-
-        // Navigate to onboarding page
-        router.push("/onboarding");
-
-      } else {
-        // --- SIGNIN: call backend ---
-        const endpoint = `${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/signin`;
-        console.log("🔹 Signing in via:", endpoint);
+        const endpoint = isSignUp 
+            ? `${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/signup`
+            : `${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/signin`;
 
         const response = await fetch(endpoint, {
           method: "POST",
@@ -116,19 +154,31 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
           body: JSON.stringify({
             email: formData.email,
             password: formData.password,
+            // Add other fields as defaults if needed for signup
+            name: formData.email.split('@')[0]
           }),
         });
 
-        // Backend not found or down
+        const result = await response.json();
+
+        // Specific Error Handling
         if (!response.ok) {
-          const text = await response.text();
-          console.error("❌ Backend response:", text);
-          throw new Error(`Signin failed (${response.status})`);
+            // Check for Verification Requirement
+            if (response.status === 403 && result.requiresVerification) {
+                setIsVerifying(true);
+                throw new Error(result.message || "Please verify your email.");
+            }
+            throw new Error(result.message || "Authentication failed");
         }
 
-        const result = await response.json();
-        console.log("✅ Signin response:", result);
+        // Handle Signup Success -> Move to Verification
+        if (isSignUp) {
+             setIsVerifying(true);
+             setIsLoading(false);
+             return;
+        }
 
+        // Handle Signin Success
         const { user, token } = result;
         if (!user || !token) {
           throw new Error("Invalid response from server");
@@ -149,16 +199,8 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
           if (chatsResp.ok) {
             const chatsJson = await chatsResp.json();
             setChatSessions(chatsJson);
-            console.log("✅ chats loaded into context", chatsJson.length);
-          } else {
-            console.warn("Chats fetch failed");
           }
-        } catch (err) {
-          console.warn("Chats fetch error", err);
-        }
-
-
-
+        } catch (err) {}
 
         // load projects
         try {
@@ -168,29 +210,30 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
           if (projectsResp.ok) {
             const projectsJson = await projectsResp.json();
             setProjects(projectsJson);
-            console.log("✅ projects loaded into context", projectsJson.length);
-          } else {
-            console.warn("Projects fetch failed");
-          }
-        } catch (err) {
-          console.warn("Projects fetch error", err);
-        }
-
-
+          } 
+        } catch (err) {}
 
         // Notify parent if applicable
         onAuthSuccess(user, false);
-      }
+      
     } catch (error: any) {
       console.error("Auth Error:", error);
+      let errorMessage = error.message || "An unexpected error occurred";
+      
+      if (errorMessage === "Failed to fetch") {
+        errorMessage = "Unable to reach the server. Please check your internet connection or try again later.";
+      }
+      
       setFormErrors((prev) => ({
         ...prev,
-        submit: error.message || "An unexpected error occurred",
+        submit: errorMessage,
       }));
     } finally {
       setIsLoading(false);
     }
   };
+
+
 
 
   /* 
@@ -232,7 +275,9 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
 
   return (
     <div className="w-full max-w-md mx-auto font-outfit">
-      <div className="card-default p-8 bg-card/80 backdrop-blur-sm shadow-xl border border-border/50">
+      <div className="card-tech p-8 shadow-2xl relative overflow-hidden">
+        {/* Subtle internal gradient for depth */}
+        <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none" />
 
         <div className="text-center mb-6">
           <h2 className="text-2xl font-bold text-foreground mb-2">
@@ -244,7 +289,7 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
         </div>
 
         {/* Toggle Buttons */}
-        <div className="flex bg-muted rounded-lg p-1 mb-6">
+        <div className="flex bg-muted rounded-lg p-1 mb-6 gap-1">
           <button
             onClick={() => setIsSignUp(false)}
             className={`flex-1 py-3 px-6 text-sm font-medium rounded-md transition-all duration-200 ${!isSignUp
@@ -265,6 +310,56 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
           </button>
         </div>
 
+        {isVerifying ? (
+             <div className="space-y-6">
+                <div className="text-center">
+                    <div className="mb-4 flex justify-center">
+                        <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                            <Mail className="w-6 h-6 text-primary" />
+                        </div>
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">Check your email</h3>
+                    <p className="text-sm text-muted-foreground">
+                        We sent a verification code to <span className="text-foreground font-medium">{formData.email}</span>
+                    </p>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="space-y-2">
+                        <label className="text-sm font-medium">Verification Code</label>
+                        <input 
+                            type="text"
+                            value={verificationCode}
+                            onChange={(e) => setVerificationCode(e.target.value)}
+                            className="w-full text-center text-2xl tracking-widest py-3 h-14 bg-input border border-border rounded-lg focus:border-primary focus:ring-2 focus:ring-primary/20"
+                            placeholder="000000"
+                            maxLength={6}
+                        />
+                    </div>
+                     {/* Submit Error */}
+                    {formErrors.submit && (
+                        <p className="text-sm text-red-500 text-center">
+                        {formErrors.submit}
+                        </p>
+                    )}
+                    
+                    <button
+                        onClick={verifyEmail}
+                        disabled={isLoading || verificationCode.length < 6}
+                        className="w-full btn-primary py-3 rounded-lg font-medium"
+                    >
+                         {isLoading ? "Verifying..." : "Verify Email"}
+                    </button>
+                    
+                    <button 
+                        onClick={() => setIsVerifying(false)}
+                        className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                        Back to Login
+                    </button>
+                </div>
+             </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Email Field */}
           <div className="space-y-2">
@@ -464,12 +559,14 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
               {isSignUp ? (
                 <>
                   By signing up, you agree to our{" "}
-                  <a href="#" className="text-primary hover:underline">
+                  <a href="#" className="relative group text-primary font-medium hover:text-primary/80 transition-colors">
                     Terms of Service
+                    <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
                   </a>{" "}
                   and{" "}
-                  <a href="#" className="text-primary hover:underline">
+                  <a href="#" className="relative group text-primary font-medium hover:text-primary/80 transition-colors">
                     Privacy Policy
+                    <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
                   </a>
                 </>
               ) : (
@@ -478,23 +575,19 @@ const AuthFormCard: React.FC<AuthFormCardProps> = ({ onAuthSuccess }) => {
                   <button
                     type="button"
                     onClick={() => setIsSignUp(true)}
-                    className="link-button-primary font-medium focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:ring-offset-1 rounded cursor-pointer"
+                    className="relative group text-primary font-medium hover:text-primary/80 transition-colors inline-flex items-center cursor-pointer"
                   >
-                    Sign up →
+                    <span>Sign up</span>
+                    <span className="ml-1 group-hover:translate-x-1 transition-transform">→</span>
+                    <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-primary transition-all duration-300 group-hover:w-full"></span>
                   </button>
                 </>
               )}
             </p>
           </div>
         </form>
-      <footer className="w-full py-6 text-center text-xs text-white/30 relative z-0 mt-8">
-         <div className="flex justify-center gap-6 mb-4">
-            <a href="#" className="hover:text-white/60 transition-colors">Privacy</a>
-            <a href="#" className="hover:text-white/60 transition-colors">Terms</a>
-            <a href="#" className="hover:text-white/60 transition-colors">Support</a>
-         </div>
-         © 2026 RaceAI. Research Accessible by Everyone.
-      </footer>
+        )}
+
       </div>
     </div>
   );
@@ -590,7 +683,7 @@ export default function HomePage() {
   
   <div className="space-y-4 max-w-2xl">
     <p className="text-lg lg:text-xl text-muted-foreground leading-relaxed text-center">
-      Great research starts with great questions. Whether you're writing your first paper or your hundredth, we help you find what matters, faster.
+      Whether you're just getting started or leading the field, RaceAI helps you find what matters - faster and turn your questions into answers - chapter after chapter.
     </p>
     
    
@@ -619,9 +712,10 @@ export default function HomePage() {
              <HowItWorks />
           </div>
 
+          <Footer />
         </div>
       </div>
     </div>
-      
-     );
+  );
 }
+

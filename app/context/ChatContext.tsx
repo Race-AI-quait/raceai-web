@@ -44,10 +44,18 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
             const res = await fetch("/api/chats");
             if (res.ok) {
                 const data = await res.json();
-                // Map API data to Context structure if needed, or ensure they match
-                setChatSessions(data.chats.map((chat: any) => ({
-                    ...chat,
-                    userId: "user", // Default for now
+                // API returns array directly now
+                const chatsArray = Array.isArray(data) ? data : (data.chats || []);
+                
+                setChatSessions(chatsArray.map((chat: any) => ({
+                    id: chat.id,
+                    title: chat.title,
+                    messages: chat.messages || [],
+                    createdAt: chat.created_at || chat.createdAt,
+                    updatedAt: chat.updated_at || chat.updatedAt,
+                    userId: chat.owner_id || "user-1",
+                    projectId: chat.project_id || chat.projectId,
+                    isPinned: chat.is_pinned || chat.isPinned || false,
                     isSaved: true
                 })));
             }

@@ -79,16 +79,39 @@ import {
   ChevronDown,
   ChevronRight,
   MoreHorizontal,
-  Bot,
-  LayoutGrid,
   Grid,
-  List
+  List,
+  Brain,
+  PlusCircle,
+  BookOpenCheck,
+  LayoutGrid,
+  Bot
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch"; 
+import { Textarea } from "@/components/ui/textarea";
+import { useSearchParams, useRouter } from "next/navigation"; 
+import { StopCircle } from "lucide-react";
 import Logo2D from "@/components/logo-2d";
+import * as pdfjsLib from 'pdfjs-dist/build/pdf';
+
+if (typeof window !== 'undefined') {
+  // Use CDN for worker to avoid build/version mismatch issues with local file
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js`;
+}
 import ModernLogo from "@/components/modern-logo";
 import NavigationSidebar from "@/components/navigation-sidebar";
 import { LLM_PROVIDERS, getModelById } from "@/lib/llm-providers";
-import { useRouter } from "next/navigation";
+
 import { SimpleThemeToggle } from "@/components/theme-toggle";
 import Markdown from "@/components/Markdown";
 import { useProjects } from "@/app/context/ProjectContext";
@@ -109,7 +132,8 @@ const CleanBackground = ({ children }: { children: React.ReactNode }) => (
 interface Message {
   id: string;
   content?: string;
-  sender: "user" | "assistant";
+  sender: "user" | "assistant" | "collaborator";
+  senderName?: string;
   timestamp: Date;
   resources?: Array<{
     title: string;
@@ -126,13 +150,14 @@ interface LocalChatSession {
   timestamp: string;
   createdAt: Date;
   updatedAt?: Date | string;
+  projectId?: string;
   isPinned?: boolean;
   category: "recent" | "pinned" | "project";
   projectName?: string;
   topic?: string;
   model?: string;
-  projectId?: string | null;
   messages?: any[];
+  collaborators?: string[];
 }
 
 interface FilterState {
@@ -186,11 +211,148 @@ export default function JarvisPage() {
   useEffect(() => {
     setIsGenerating(isLoading);
   }, [isLoading, setIsGenerating]);
+  
+  // Navigation Handler
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  
+  useEffect(() => {
+      const sessionIdFromUrl = searchParams.get('sessionId');
+      if (sessionIdFromUrl && sessionIdFromUrl !== currentSessionId) {
+          handleSelectSession(sessionIdFromUrl);
+      }
+  }, [searchParams]);
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleStopGeneration = () => {
+      if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+          setIsLoading(false);
+          toast({ title: "Stopped", description: "Generation stopped by user." });
+      }
+  };
+
+  const handleEditMessage = (content: string) => {
+      setInputMessage(content);
+      if (fileInputRef.current) {
+          fileInputRef.current.focus(); // Focus input area (using file ref proxy or ideally input ref)
+      }
+  };
 
   useEffect(() => {
     setIsMounted(true);
-    // Initial welcome message removed for "New Chat" empty state experience
   }, []);
+
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+
+  const startEditing = (message: Message) => {
+      setEditingMessageId(message.id);
+      let initialContent = message.content || "";
+      if (!initialContent && message.blocks) {
+          initialContent = message.blocks
+              .filter(b => b.type === 'paragraph' && 'text' in b)
+              .map(b => (b as any).text)
+              .join("\n");
+      }
+      setEditContent(initialContent);
+  };
+
+  const cancelEditing = () => {
+      setEditingMessageId(null);
+      setEditContent("");
+  };
+
+  const submitEdit = async (messageId: string, newContent: string) => {
+       // 1. Calculate new state immediately
+       const index = messages.findIndex(m => m.id === messageId);
+       if (index === -1) return;
+       
+       const truncated = messages.slice(0, index);
+       const updatedMessage: Message = {
+           ...messages[index],
+           content: newContent,
+           blocks: [{ type: "paragraph", text: newContent }], // Force update blocks to reflect content
+           timestamp: new Date()
+       };
+       const updatedMessages = [...truncated, updatedMessage];
+       
+       // Update UI
+       setMessages(updatedMessages);
+
+       setEditingMessageId(null);
+       setEditContent("");
+       setIsLoading(true);
+
+       // 2. Trigger Title Regeneration if First Message was edited
+       // Now updatedMessages is valid in this scope
+       const isFirstMessage = index === 0;
+       if (isFirstMessage && currentSessionId) {
+            // Async fire-and-forget
+            fetchTitleFromAI(currentSessionId, newContent);
+       }
+
+       // 3. Trigger API to get new response based on truncated history + new prompt
+       try {
+        // Find current custom instructions
+        const activeAgent = [...agents, ...customAgents].find(a => a.id === selectedAgent);
+        let systemInstruction = (activeAgent as any)?.instructions || undefined;
+        // Check if agent allows links
+        const agentIncludeLinks = (activeAgent as any)?.includeLinks ?? true;
+
+        // Inject Knowledge Base if available
+        if (knowledgeBase) {
+             const kbPrompt = `\n\n[KNOWLEDGE BASE]\nUse the following information to answer user questions:\n${knowledgeBase}\n[END KNOWLEDGE BASE]`;
+             systemInstruction = systemInstruction ? `${systemInstruction}${kbPrompt}` : `You are a helpful AI assistant.${kbPrompt}`;
+        }
+           
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
+        // Prepare message history for API (excluding the one we just simulated adding, 
+        // effectively we are resending the *updated* history up to the point of edit)
+        // Actually, we need to send the truncated history + the new user message content.
+        const historyForApi = updatedMessages.map((msg) => ({
+             sender: msg.sender,
+             content: msg.content || "" // Simplified for edit re-generation
+        }));
+
+        const response = await fetch("/api/chat", {
+          signal: controller.signal,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            messages: historyForApi,
+            model: selectedModel,
+            includeResources: agentIncludeLinks && true,
+            systemInstruction
+          }),
+        });
+
+        if (!response.ok) throw new Error("Failed to regenerate response");
+        
+        const data = await response.json();
+        if (!data) return;
+
+        const assistantMessage: Message = {
+            id: data.message.id,
+            blocks: data.message.blocks,
+            sender: "assistant",
+            timestamp: new Date(),
+            resources: data.message.resources,
+        };
+
+        setMessages(prev => [...prev, assistantMessage]); // Append AI response to the truncated list
+        
+       } catch (error) {
+           console.error("Error regenerating chat:", error);
+           toast({ title: "Error", description: "Failed to regenerate response.", variant: "destructive" });
+       } finally {
+           setIsLoading(false);
+       }
+  };
 
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<FilterState>({
@@ -220,6 +382,93 @@ export default function JarvisPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+
+  // Agent & Training State
+  const [selectedAgent, setSelectedAgent] = useState("general");
+  const [showCreateAgentModal, setShowCreateAgentModal] = useState(false);
+  const [showTrainModal, setShowTrainModal] = useState(false);
+  const [newAgentName, setNewAgentName] = useState("");
+  const [newAgentInstructions, setNewAgentInstructions] = useState("");
+  const [newAgentIncludeLinks, setNewAgentIncludeLinks] = useState(true);
+  const [customAgents, setCustomAgents] = useState<Array<{id: string, name: string, instructions: string, includeLinks: boolean}>>([]);
+  const [resoucesToTrain, setResourcesToTrain] = useState<File[]>([]);
+  const [knowledgeBase, setKnowledgeBase] = useState<string>("");
+
+  const agents = [
+    { id: "general", name: "General Assistant", icon: Bot },
+    { id: "lit-review", name: "Literature Reviewer", icon: BookOpen },
+    { id: "data-analyst", name: "Data Analyst", icon: LayoutGrid }, // utilizing generic icon fallback if not imported
+  ];
+
+  const handleCreateAgent = () => {
+    if (!newAgentName.trim()) return;
+    
+    if (editingChatId) { // Reusing state variable temporarily or create new one? 
+        // Let's create a dedicated state for editing agent ID if needed, 
+        // but for now let's just use a new logic:
+        setCustomAgents(prev => prev.map(a => a.id === editingAgentId ? { ...a, name: newAgentName, instructions: newAgentInstructions, includeLinks: newAgentIncludeLinks } : a));
+        setEditingAgentId(null);
+        toast({ title: "Agent Updated", description: `${newAgentName} has been updated.` });
+    } else {
+        setCustomAgents(prev => [...prev, {
+            id: `custom-${Date.now()}`,
+            name: newAgentName,
+            instructions: newAgentInstructions,
+            includeLinks: newAgentIncludeLinks
+        }]);
+        toast({ title: "Agent Created", description: `${newAgentName} is ready to help.` });
+    }
+    setShowCreateAgentModal(false);
+    setNewAgentName("");
+    setNewAgentInstructions("");
+    setNewAgentIncludeLinks(true);
+  };
+
+  const [editingAgentId, setEditingAgentId] = useState<string | null>(null);
+
+  const startEditingAgent = (agentId: string) => {
+      const agent = customAgents.find(a => a.id === agentId);
+      if (agent) {
+          setNewAgentName(agent.name);
+          setNewAgentInstructions(agent.instructions);
+          setNewAgentIncludeLinks(agent.includeLinks ?? true);
+          setEditingAgentId(agentId);
+          setShowCreateAgentModal(true);
+      }
+  };
+
+  const handleTrainUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (e.target.files?.length) {
+          setResourcesToTrain(prev => [...prev, ...Array.from(e.target.files!)]);
+      }
+  };
+
+  const startTraining = async () => {
+      setIsLoading(true);
+      try {
+          // Process all files in resourcesToTrain
+          const texts = await Promise.all(resoucesToTrain.map(async (file) => {
+              if (file.type === 'application/pdf') {
+                  return await extractTextFromPDF(file);
+              } else if (file.type.startsWith('text/') || file.name.match(/\.(md|json|js|ts|tsx|csv|txt)$/)) {
+                   return await file.text();
+              }
+              return "";
+          }));
+          
+          const combinedKnowledge = texts.filter(t => t).join("\n\n");
+          setKnowledgeBase(prev => prev + "\n" + combinedKnowledge);
+          
+          setShowTrainModal(false);
+          setResourcesToTrain([]);
+          toast({ title: "Training Complete", description: "Documents ingested. I can now answer questions based on this knowledge." });
+      } catch (error) {
+          console.error("Training Error:", error);
+          toast({ title: "Training Failed", description: "Could not process some files.", variant: "destructive" });
+      } finally {
+          setIsLoading(false);
+      }
+  };
 
   const mapContextMessageToLocal = (msg: any): Message => ({
     id: msg.id,
@@ -268,7 +517,7 @@ export default function JarvisPage() {
     }
   };
 
-  const router = useRouter();
+
 
   const getFilteredSessions = () => {
     const localSessions = chatSessions.map(mapContextSessionToLocal);
@@ -333,7 +582,7 @@ export default function JarvisPage() {
       createdAt: new Date().toISOString(),
     };
 
-    const newSession: LocalChatSession = {
+    const newSession: any = {
       id: newSessionId,
       title: "New Chat",
       preview: "Start a new conversation...",
@@ -341,9 +590,15 @@ export default function JarvisPage() {
         hour: "2-digit",
         minute: "2-digit",
       }),
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       category: "recent",
       messages: [welcomeMessage], // Initialize with welcome message
+      userId: 'user',
+      isSaved: true,
+      projectId: '',
+      isPinned: false,
+      collaborators: []
     };
 
     // Add new session to the beginning of the list
@@ -391,20 +646,52 @@ export default function JarvisPage() {
     return title.length > 30 ? title.substring(0, 30) + "..." : title;
   };
 
+  const extractTextFromPDF = async (file: File): Promise<string> => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let text = "";
+      // Limit to first 10 pages to avoid huge payloads for now, or just read all if reasonable
+      const maxPages = Math.min(pdf.numPages, 10); 
+      
+      for (let i = 1; i <= maxPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        // @ts-ignore
+        const strings = content.items.map((item: any) => item.str);
+        text += strings.join(" ") + "\n";
+      }
+      if (pdf.numPages > 10) {
+          text += "\n...[Content truncated for length]...";
+      }
+      return text;
+    } catch (error) {
+      console.error("PDF Extraction Error:", error);
+      return "Error extracting text from PDF.";
+    }
+  };
+
   const handleSendMessage = async () => {
     if ((!inputMessage.trim() && uploadedFiles.length === 0) || isLoading) return;
 
     // Process files
+    // Process files
     const processedFiles = await Promise.all(uploadedFiles.map(async (file) => {
+      // Handle PDF with direct extraction (async)
+      if (file.type === 'application/pdf') {
+         const textContent = await extractTextFromPDF(file);
+         return { type: 'text', content: textContent, mime: file.type } as { type: 'image' | 'text', content: string, mime: string };
+      }
+
+      // Handle other files with FileReader
       return new Promise<{ type: 'image' | 'text', content: string, mime: string }>((resolve) => {
         const reader = new FileReader();
         reader.onload = (e) => {
           const result = e.target?.result as string;
           if (file.type.startsWith('image/')) {
             resolve({ type: 'image', content: result, mime: file.type });
-          } else if (file.type.startsWith('audio/') || file.type.startsWith('video/') || file.type === 'application/pdf') {
-            // Read as Data URL for playback/preview
-            resolve({ type: 'text', content: result, mime: file.type }); // We use 'text' as a carrier for the dataURL string in this simplified promise return, but handle it by mime later
+          } else if (file.type.startsWith('audio/') || file.type.startsWith('video/')) {
+            resolve({ type: 'text', content: result, mime: file.type }); 
           } else {
             // Check if text-readable
             if (file.type.startsWith('text/') || file.name.match(/\.(md|json|js|ts|tsx|csv|txt)$/)) {
@@ -415,7 +702,7 @@ export default function JarvisPage() {
           }
         };
 
-        if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/') || file.type === 'application/pdf') {
+        if (file.type.startsWith('image/') || file.type.startsWith('audio/') || file.type.startsWith('video/')) {
           reader.readAsDataURL(file);
         } else if (file.type.startsWith('text/') || file.name.match(/\.(md|json|js|ts|tsx|csv|txt)$/)) {
           reader.readAsText(file);
@@ -474,33 +761,98 @@ export default function JarvisPage() {
         if (f.type === 'image') {
           apiContent.push({ type: "image", image: f.content });
         } else if (f.type === 'text') {
-          apiContent.push({ type: "text", text: `\n\n--- File: ${f.content.startsWith('[Attached') ? '' : 'Attached content'} ---\n${f.content}\n--- End File ---\n` });
+           const isPDF = f.mime === 'application/pdf';
+           const label = isPDF ? `PDF Content (${uploadedFiles.find(uf => uf.type === f.mime)?.name || "Document"})` : (f.content.startsWith('[Attached') ? '' : 'Attached content');
+           // Provide extracted text to LLM
+           apiContent.push({ type: "text", text: `\n\n--- ${label} ---\n${f.content}\n--- End File ---\n` });
         }
       });
 
-      let data;
-      try {
+        // Find current custom instructions
+        const activeAgent = [...agents, ...customAgents].find(a => a.id === selectedAgent);
+        let systemInstruction = (activeAgent as any)?.instructions || undefined;
+        // Check if agent allows links (default true for system agents, Check custom agent prop)
+        const agentIncludeLinks = (activeAgent as any)?.includeLinks ?? true;
+
+        // Inject Knowledge Base if available
+        if (knowledgeBase) {
+             const kbPrompt = `\n\n[KNOWLEDGE BASE]\nUse the following information to answer user questions:\n${knowledgeBase}\n[END KNOWLEDGE BASE]`;
+             systemInstruction = systemInstruction ? `${systemInstruction}${kbPrompt}` : `You are a helpful AI assistant.${kbPrompt}`;
+        }
+
+
+        
+        // Setup AbortController
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         const response = await fetch("/api/chat", {
+          signal: controller.signal,
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
             messages: [
-              ...messages.map((msg) => ({
-                sender: msg.sender,
-                content:
-                  msg.sender === "user"
-                    ? (msg.blocks?.[0] as any)?.text || msg.content || ""
-                    : msg.content || ""
-              })),
+              ...messages.slice(-20).map((msg) => {
+                 // Correctly map history for context, preserving layout and modality
+                 let content: any = "";
+                 if (msg.sender === "user") {
+                     // Check if it has blocks to support multimodal history
+                     if (msg.blocks && msg.blocks.length > 0) {
+                        const contentBlocks: any[] = [];
+                        msg.blocks.forEach(b => {
+                            if (b.type === 'paragraph') {
+                                contentBlocks.push({ type: 'text', text: b.text });
+                            } else if (b.type === 'image') {
+                                // Re-send image data for context visibility
+                                contentBlocks.push({ type: 'image', image: b.url });
+                            }
+                            // File/Audio/Video might be handled as text description for now if not natively supported by all providers in history
+                            // But for "context", keeping them as text is safer unless we know the model supports them.
+                            // For now, let's assume image/text is enough for the user's "spiral" issue.
+                        });
+                        // Fallback if empty (e.g. only file block which we skipped?)
+                         content = contentBlocks.length > 0 ? contentBlocks : (msg.content || "");
+                     } else {
+                        content = msg.content || "";
+                     }
+                 } else {
+                     // Reconstruct assistant content
+                     const textContent = msg.content || "";
+                     const blockContent = msg.blocks?.map(b => b.type === 'paragraph' ? b.text : '').join("\n") || "";
+                     content = textContent || blockContent;
+                 }
+                 return {
+                    sender: msg.sender,
+                    content
+                 };
+              }),
               {
                 sender: "user",
-                content: apiContent
+                content: [
+                    // Inject historical file context
+                     ...messages.slice(0, -20).flatMap(msg => {
+                        if (!msg.blocks) return [];
+                        return msg.blocks.flatMap(b => {
+                            if (b.type === 'file' && 'url' in b && b.url.startsWith('text/')) {
+                                // Re-inject text content of old files
+                                // Note: We need the actual text, but our block structure for 'file' stores content in 'url' (based on current implementation)?
+                                // Wait, in handleSendMessage we pushed: { type: "file", url: f.content, name: filename, size: "File" }
+                                // And f.content for text/pdf was the text. So yes, b.url IS the content for text files in our local block logic.
+                                // We need to be careful not to reinject huge PDFs repeatedly if tokens are an issue, but user asked to retain them.
+                                return [{ type: 'text', text: `\n[Historical File Context: ${b.name}]\n${b.url}\n` }];
+                            }
+                            return [];
+                        });
+                     }),
+                    ...apiContent
+                ]
               }
             ],
             model: selectedModel,
-            includeResources: true
+            includeResources: agentIncludeLinks && true, // Logic: Only if agent allows it AND global flag is true (default true)
+            systemInstruction // Pass the custom persona prompt + Knowledge Base
           }),
         });
 
@@ -510,17 +862,7 @@ export default function JarvisPage() {
            throw new Error(errorData.error || `Failed to get response: ${response.status}`);
         }
 
-        data = await response.json();
-      } catch (error) {
-        console.error("Message sending failed:", error);
-        toast({
-          title: "Error sending message",
-          description: error instanceof Error ? error.message : "Network error",
-          variant: "destructive"
-        });
-        // setIsThinking(false); // This line was removed in the original diff, keeping it removed.
-        return;
-      }
+        const data = await response.json();
 
       if (!data) return;
 
@@ -577,71 +919,60 @@ export default function JarvisPage() {
           return prev.map((session) => {
             if (session.id === currentSessionId) {
               // Extract Title from Assistant Response (Priority 1)
-              let extractedTitle = "";
-              const fullAssistText = assistantMessage.content || assistantMessage.blocks?.map(b => (b as any).text || (b as any).content || "").join("\n") || "";
+              // OLD: Heuristic regex
+              // NEW: We will rely on a background fetch for "Smart Title" in handleSendMessage (see below) if it's new.
+              // However, we still need a fallback here or we can just keep the existing logic as a backup.
+              // But user specifically wants to fix typos, so we should rely entirely on `extractedTitle` if provided by API, 
+              // or generated via separate call. 
+              // To avoid waiting, let's trigger the title generation async on the FIRST user message.
 
-              // Regex to find Markdown Headings (# Header) or Strong Headers (**Header**)
-              const headerMatch = fullAssistText.match(/^\s*#{1,6}\s+(.+?)\s*$/m);
-              const boldMatch = fullAssistText.match(/^\s*(\*\*|__)(.+?)(\*\*|__)\s*$/m);
-
-              if (headerMatch) extractedTitle = headerMatch[1];
-              else if (boldMatch) extractedTitle = boldMatch[2];
-
-              // Clean up extracted title if found
-              if (extractedTitle) {
-                extractedTitle = extractedTitle.trim().replace(/[:.]/g, ''); // Remove trailing colons/periods
-                if (extractedTitle.length > 40) extractedTitle = ""; // Ignore if too long (likely a paragraph)
+              // For now, let's assume session.title is updated via a separate effect or call.
+              // BUT to keep it simple: Let's use the `generateChatTitle` (which we will upgrade to use API).
+              
+              // Actually, I'll update `generateChatTitle` to be async and call it? No, `setChatSessions` is sync.
+              // We will fire-and-forget a title update.
+              
+              let newTitle = session.title;
+              const isGenericTitle = session.title === "New Chat" || session.title === "New Session" || session.title === "Hello API";
+              
+              if ((isFirstUserMessage || isGenericTitle) && session.title !== "Generating...") {
+                  // We defer title generation to an effect or just let the previous title stick until update.
+                  // See `fetchTitleFromAI` call added below setChatSessions.
+                  newTitle = session.title; 
               }
 
-              // Force title update if it's the first message OR if title is still generic
-              const isGenericTitle = session.title === "New Chat" || session.title === "New Session" || session.title === "Hello API";
-
-              const newTitle = (isFirstUserMessage || isGenericTitle)
-                ? (extractedTitle || generateChatTitle(userMessageContent))
-                : session.title;
-
-              return {
-                ...session,
-                messages: updatedMessagesList,
-                title: newTitle,
-                preview: formattedPreview,
-                updatedAt: new Date()
-              };
             }
             return session;
           });
         } else {
           // Create New Session (Check-Or-Create Pattern)
-          let extractedTitle = "";
-          const fullAssistText = assistantMessage.content || assistantMessage.blocks?.map(b => (b as any).text || (b as any).content || "").join("\n") || "";
+          // We will use a temporary title until the API returns
+          const newTitle = "New Chat"; 
 
-          const headerMatch = fullAssistText.match(/^\s*#{1,6}\s+(.+?)\s*$/m);
-          const boldMatch = fullAssistText.match(/^\s*(\*\*|__)(.+?)(\*\*|__)\s*$/m);
-
-          if (headerMatch) extractedTitle = headerMatch[1];
-          else if (boldMatch) extractedTitle = boldMatch[2];
-
-          if (extractedTitle) {
-            extractedTitle = extractedTitle.trim().replace(/[:.]/g, '');
-            if (extractedTitle.length > 40) extractedTitle = "";
-          }
-
-          const newTitle = extractedTitle || generateChatTitle(userMessageContent);
-
-          const newSession: LocalChatSession = {
+          const newSession: any = {
             id: currentSessionId,
             title: newTitle,
             preview: formattedPreview,
             timestamp: "Today",
             messages: updatedMessagesList,
             model: selectedModel,
-            updatedAt: new Date(),
-            createdAt: new Date(),
-            projectId: null
+            updatedAt: new Date().toISOString(), // Ensure string format
+            createdAt: new Date().toISOString(),
+            projectId: null,
+            userId: 'user',
+            isSaved: true,
+            isPinned: false,
+            collaborators: []
           };
           return [newSession, ...prev];
         }
       });
+      
+      // Fire-and-forget Title Generation for new chats
+      const isNewChat = messages.length <= 1; // Only welcome message or empty
+      if (isNewChat) {
+         fetchTitleFromAI(currentSessionId, userMessageContent);
+      }
 
       // //post that assistant response to backend
       // await fetch("http://localhost:5000/chat/message", {
@@ -762,20 +1093,43 @@ export default function JarvisPage() {
   const handleVoiceInput = async () => {
     if (!isRecording) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
-        setIsRecording(true);
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            toast({ title: "Error", description: "Voice input not supported in this browser.", variant: "destructive" });
+            return;
+        }
+        
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = 'en-US';
+        
+        recognition.onstart = () => {
+            setIsRecording(true);
+        };
+        
+        recognition.onresult = (event: any) => {
+            const transcript = event.results[0][0].transcript;
+            setInputMessage(prev => prev + (prev ? " " : "") + transcript);
+        };
+        
+        recognition.onerror = (event: any) => {
+            console.error("Voice error:", event.error);
+            setIsRecording(false);
+        };
+        
+        recognition.onend = () => {
+            setIsRecording(false);
+        };
+        
+        recognition.start();
 
-        setTimeout(() => {
-          setIsRecording(false);
-          stream.getTracks().forEach((track) => track.stop());
-          console.log("Voice recording completed");
-        }, 3000);
       } catch (error) {
         console.error("Error accessing microphone:", error);
+         setIsRecording(false);
       }
     } else {
+      // Manual stop logic if we wanted, usually handled by 'end' event or stop()
       setIsRecording(false);
     }
   };
@@ -836,7 +1190,8 @@ export default function JarvisPage() {
     
     // If we deleted the current active chat, switch to a new chat or another existing one
     if (currentSessionId === chatId) {
-        // Find another recent chat that isn't deleted
+        // Filter from the GLOBAL chatSessions, explicitly excluding the one we just marked for deletion
+        // We use mapContextSessionToLocal because chatSessions is a ContextChatSession[]
         const remainingChats = chatSessions
             .map(mapContextSessionToLocal)
             .filter(s => s.id !== chatId && !deletedChats.includes(s.id));
@@ -844,12 +1199,27 @@ export default function JarvisPage() {
         if (remainingChats.length > 0) {
             handleSelectSession(remainingChats[0].id);
         } else {
-            // No chats left, reset to new chat state
-            setCurrentSessionId(""); 
-            setMessages([]);
+            // No chats left, forcing a "New Chat" logic is safer than leaving an empty state
+            handleNewChat();
         }
     }
     toast({ title: "Chat Deleted", description: "Functionality synced with sidebar." });
+  };
+
+  const fetchTitleFromAI = async (sessionId: string, prompt: string) => {
+      try {
+          const res = await fetch("/api/chat/title", {
+              method: "POST",
+              body: JSON.stringify({ prompt, model: selectedModel }) // Use selected model or default fast one
+          });
+          const data = await res.json();
+          if (data.title) {
+              // Update Session Title
+              setChatSessions(prev => prev.map(s => s.id === sessionId ? { ...s, title: data.title } : s));
+          }
+      } catch (err) {
+          console.error("Failed to generate title:", err);
+      }
   };
 
   const handleScreenShare = async () => {
@@ -898,13 +1268,30 @@ export default function JarvisPage() {
     }
   };
 
-  const handleInviteCollaborator = () => {
+  const handleInviteCollaborator = async () => {
     if (collaboratorEmail.trim()) {
-      console.log("Sharing with collaborator:", collaboratorEmail);
-      toast({
-        title: "Invitation Sent",
-        description: `Shared chat with ${collaboratorEmail}`,
-      });
+      try {
+          await fetch("/api/chat/invite", {
+              method: "POST",
+              body: JSON.stringify({ email: collaboratorEmail, chatId: showShareModal })
+          });
+          
+          setChatSessions(prev => prev.map(s => {
+              if (s.id === showShareModal) {
+                  const currentCollaborators = (s as any).collaborators || [];
+                  return { ...s, collaborators: [...currentCollaborators, collaboratorEmail] };
+              }
+              return s;
+          }));
+
+          toast({
+            title: "Invitation Sent",
+            description: `Shared chat with ${collaboratorEmail}. They will receive an email shortly.`,
+          });
+      } catch (e) {
+          toast({ title: "Error", description: "Failed to send invite.", variant: "destructive" });
+      }
+      
       setShowShareModal(null);
       setShowCollaboratorInput(false);
       setCollaboratorEmail("");
@@ -913,7 +1300,7 @@ export default function JarvisPage() {
 
   return (
     <div
-      className="h-screen flex bg-background dark:bg-gradient-to-br dark:from-slate-950 dark:via-blue-950/40 dark:to-slate-900 relative overflow-hidden"
+      className="h-screen flex bg-background dark:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] dark:from-[#3b82f640] dark:via-[#0B1120] dark:to-black relative overflow-hidden"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -934,7 +1321,7 @@ export default function JarvisPage() {
       <NavigationSidebar />
 
       {/* Chat Sidebar */}
-      <div className="hidden md:flex md:w-80 lg:w-96 bg-background/50 backdrop-blur-sm flex-col relative z-10">
+      <div className="hidden md:flex md:w-80 lg:w-96 bg-background/50 backdrop-blur-sm flex-col relative z-10 border-r border-black/5 dark:border-white/5">
         {/* Sidebar Header */}
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
@@ -945,10 +1332,11 @@ export default function JarvisPage() {
               <Button
                 size="sm"
                 variant="ghost"
-                className="text-muted-foreground hover:text-foreground hover:cursor-pointer hover:bg-accent"
+                className="w-8 h-8 p-0 rounded-full bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all duration-300 shadow-sm hover:shadow-md hover:scale-105"
                 onClick={handleNewChat}
+                title="New Chat"
               >
-                <Plus size={16} />
+                <Plus size={18} />
               </Button>
             </div>
           </div>
@@ -962,9 +1350,8 @@ export default function JarvisPage() {
                   rounded-lg
                   focus-within:outline-none
                   focus-within:ring-0
-                  focus-within:border-gray-600
-                  bg-transparent 
-                  border border-gray-600
+                  bg-muted/10 
+                  border-none
                 "
             >
               <Search className="w-4 h-4 text-muted-foreground" />
@@ -1143,7 +1530,7 @@ export default function JarvisPage() {
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key as any)}
                 className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold hover:cursor-pointer transition-all duration-200 ${activeTab === tab.key
-                  ? "active-nav-minimal"
+                  ? "active-nav-minimal text-blue-600 dark:text-foreground"
                   : "text-muted-foreground hover:bg-gray-100 dark:hover:bg-white/5 hover:text-foreground"
                   }`}
               >
@@ -1194,9 +1581,9 @@ export default function JarvisPage() {
                           animate={{ opacity: 1, y: 0 }}
                           exit={{ opacity: 0, x: -50, height: 0, marginBottom: 0 }}
                           transition={{ duration: 0.2 }}
-                          className={`group relative p-3 cursor-pointer transition-all duration-300 border rounded-xl mb-2 backdrop-blur-md ${currentSessionId === session.id
-                            ? 'border-primary/50 bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 shadow-[rgba(59,130,246,0.25)_0px_0px_0px_3px]'
-                            : 'bg-transparent border-transparent hover:bg-accent/40 hover:border-border/30'
+                          className={`group relative p-3 cursor-pointer transition-all duration-200 rounded-xl mb-2 backdrop-blur-sm ${currentSessionId === session.id
+                            ? 'bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-transparent'
+                            : 'hover:bg-accent/40'
                             }`}
                           onClick={() => handleSelectSession(session.id)}
                           onMouseEnter={() => setHoveredChat(session.id)}
@@ -1221,7 +1608,7 @@ export default function JarvisPage() {
                                 onClick={(e) => e.stopPropagation()}
                               />
                             ) : (
-                              <h4 className={`font-medium text-sm truncate flex-1 transition-colors ${currentSessionId === session.id ? 'text-primary' : 'text-foreground'}`}>
+                              <h4 className={`font-medium text-sm truncate flex-1 transition-colors ${currentSessionId === session.id ? 'text-blue-400 font-semibold' : 'text-foreground'}`}>
                                 {chatTitles[session.id] || session.title}
                               </h4>
                             )}
@@ -1229,7 +1616,7 @@ export default function JarvisPage() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                className={`h-6 w-6 p-0 transition-all duration-300 ease-out hover:scale-125 active:scale-95 ${pinnedChats.includes(session.id)
+                                className={`h-6 w-6 p-0 rounded-full hover:bg-transparent transition-all duration-300 ease-out hover:scale-125 active:scale-95 ${pinnedChats.includes(session.id)
                                   ? "opacity-100 text-primary"
                                   : hoveredChat === session.id
                                     ? "opacity-100 text-muted-foreground hover:text-primary"
@@ -1251,7 +1638,7 @@ export default function JarvisPage() {
                                   <Button
                                     size="sm"
                                     variant="ghost"
-                                    className="h-6 w-6 p-0 text-muted-foreground hover:text-primary transition-all duration-300 ease-out hover:scale-125 active:scale-95"
+                                    className="h-6 w-6 p-0 rounded-full hover:bg-transparent text-muted-foreground hover:text-primary transition-all duration-300 ease-out hover:scale-125 active:scale-95"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleChatAction({ type: "rename", chatId: session.id });
@@ -1263,7 +1650,7 @@ export default function JarvisPage() {
                                   <Button
                                     size="sm"
                                     variant="ghost"
-                                    className="h-6 w-6 p-0 text-muted-foreground hover:text-primary transition-all duration-300 ease-out hover:scale-125 active:scale-95"
+                                    className="h-6 w-6 p-0 rounded-full hover:bg-transparent text-muted-foreground hover:text-primary transition-all duration-300 ease-out hover:scale-125 active:scale-95"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleChatAction({ type: "share", chatId: session.id });
@@ -1272,18 +1659,20 @@ export default function JarvisPage() {
                                     <Share size={14} />
                                   </Button>
 
+
+
                                   <div onClick={(e) => e.stopPropagation()}>
                                     <DropdownMenu modal={false}>
                                       <DropdownMenuTrigger asChild>
                                         <Button
                                           size="sm"
                                           variant="ghost"
-                                          className="h-6 w-6 p-0 text-muted-foreground hover:text-primary transition-all duration-300 ease-out hover:scale-125 active:scale-95"
+                                          className="h-6 w-6 p-0 rounded-full hover:bg-transparent text-muted-foreground hover:text-primary transition-all duration-300 ease-out hover:scale-125 active:scale-95"
                                         >
                                           <Folder size={14} />
                                         </Button>
                                       </DropdownMenuTrigger>
-                                      <DropdownMenuContent align="start" className="w-48 z-[200]">
+                                      <DropdownMenuContent align="start" className="w-48 z-[200] bg-[#F8FAFC]/95 dark:bg-slate-900/90 backdrop-blur-2xl border-none shadow-[0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-black/5 dark:ring-white/5">
                                         <DropdownMenuLabel>Save to Project</DropdownMenuLabel>
                                         <DropdownMenuSeparator />
                                         {projects.map((project) => (
@@ -1414,10 +1803,10 @@ export default function JarvisPage() {
                             {projectSessions.map(session => (
                               <div
                                 key={session.id}
-                                className={`group p-3 rounded-xl cursor-pointer transition-all duration-300 mb-2 border ${currentSessionId === session.id
-                                  ? 'active-chat-border bg-accent/20 dark:bg-accent/10 shadow-lg'
-                                  : 'border-transparent hover:bg-accent/50 hover:border-border/50'
-                                  }`}
+                                  className={`group p-3 rounded-xl cursor-pointer transition-all duration-300 mb-2 border ${currentSessionId === session.id
+                                    ? 'bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-transparent border-transparent'
+                                    : 'hover:bg-accent/50 border-transparent'
+                                    }`}
                                 onClick={() => handleSelectSession(session.id)}
                               >
                                 <h4 className="font-medium text-sm truncate mb-0.5">{session.title}</h4>
@@ -1442,7 +1831,7 @@ export default function JarvisPage() {
                             {uncategorized.map(session => (
                               <div
                                 key={session.id}
-                                className={`group p-3 rounded-lg cursor-pointer transition-all border border-transparent hover:bg-accent/50 ${currentSessionId === session.id ? 'bg-accent border-border shadow-sm' : ''}`}
+                                className={`group p-3 rounded-lg cursor-pointer transition-all hover:bg-accent/50 ${currentSessionId === session.id ? 'bg-gradient-to-r from-primary/20 via-primary/10 to-transparent shadow-sm' : ''}`}
                                 onClick={() => handleSelectSession(session.id)}
                               >
                                 <h4 className="font-medium text-sm truncate mb-0.5">{session.title}</h4>
@@ -1507,181 +1896,153 @@ export default function JarvisPage() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col bg-background relative z-10">
-        {/* Chat Header */}
-        <div className="px-6 py-4 border-b border-border">
+        {/* Chat Header - Sleek Redesign */}
+        <div className="px-6 py-4 border-b border-white/5 backdrop-blur-md sticky top-0 z-20 bg-background/80">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-            <div className="flex items-center space-x-3">
-              <div className="flex items-center space-x-2">
-                <div>
-                  <h2 className="font-semibold text-foreground">
+
+            {/* Left: Title & Agent Info */}
+            <div className="flex items-center gap-3">
+               <div>
+                  <h2 className="font-semibold text-foreground flex items-center gap-2">
                     {currentSessionId 
                       ? (chatTitles[currentSessionId] || chatSessions.find(s => s.id === currentSessionId)?.title || "New Chat")
-                      : "JARVIS RACE Research Assistant"
+                      : "JARVIS Research"
                     }
                   </h2>
-                  <p className="text-xs text-muted-foreground">
-                    {selectedModelInfo
-                      ? `${selectedModelInfo.provider.name} • ${selectedModelInfo.model.name}`
-                      : "Powered by AI"}
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    {selectedModelInfo?.model.name || "GPT-4o"}
                   </p>
-                </div>
-              </div>
+               </div>
             </div>
 
+            {/* Right: Controls (Unified Capsule) */}
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <Select value={selectedModel} onValueChange={setSelectedModel}>
-                <SelectTrigger className="w-full sm:w-[240px] md:w-[280px] h-auto min-h-[36px] text-xs">
-                  <div className="flex hover:cursor-pointer items-center gap-2.5 py-1">
-                    <div className="w-2 h-2 bg-primary rounded-full flex-shrink-0"></div>
-                    <div className="flex flex-col items-start flex-1">
-                      <span className="font-medium text-sm">
-                        {selectedModelInfo?.model.name || "GPT-4o"}
-                      </span>
-                      {selectedModel && (
-                        <span className="text-[10px] text-muted-foreground line-clamp-1">
-                          {selectedModel === "gpt-4o" &&
-                            "Best for complex reasoning and analysis"}
-                          {selectedModel === "gpt-4o-mini" &&
-                            "Fast, efficient for simple tasks"}
-                          {selectedModel === "o1-preview" &&
-                            "Advanced reasoning with chain-of-thought"}
-                          {selectedModel === "o1-mini" &&
-                            "Lightweight reasoning model"}
-                          {selectedModel === "claude-3-5-sonnet" &&
-                            "Best for creative and nuanced content"}
-                          {selectedModel === "claude-3-5-haiku" &&
-                            "Fast Claude model for quick tasks"}
-                          {selectedModel === "claude-3-opus" &&
-                            "Most capable Claude for complex work"}
-                          {selectedModel === "gemini-1.5-pro" &&
-                            "Google's best for multimodal tasks"}
-                          {selectedModel === "gemini-1.5-flash" &&
-                            "Fast Google model for quick responses"}
-                          {selectedModel === "gemini-2.0-flash-exp" &&
-                            "Experimental features and capabilities"}
-                          {selectedModel === "llama-3.1-sonar-large" &&
-                            "Open-source with web search"}
-                          {selectedModel === "llama-3.1-sonar-small" &&
-                            "Lightweight with web search"}
-                          {selectedModel === "llama-3.1-sonar-huge" &&
-                            "Most powerful open-source option"}
-                          {selectedModel === "grok-2-1212" &&
-                            "Latest Grok with real-time knowledge"}
-                          {selectedModel === "grok-2-vision-1212" &&
-                            "Grok with image understanding"}
-                          {selectedModel === "deepseek-r1" &&
-                            "Specialized for research tasks"}
-                          {selectedModel ===
-                            "deepseek-r1-distill-llama-70b" &&
-                            "Research-focused, large model"}
-                          {selectedModel === "mixtral-8x7b" &&
-                            "Efficient mixture of experts model"}
-                          {selectedModel === "mixtral-8x22b" &&
-                            "Large MoE for complex tasks"}
-                          {selectedModel === "mistral-large" &&
-                            "Mistral's flagship model"}
-                          {selectedModel === "mistral-nemo" &&
-                            "Balanced performance model"}
-                          {selectedModel === "nemotron-70b" &&
-                            "NVIDIA's large language model"}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </SelectTrigger>
-                <SelectContent className="w-[320px] bg-popover/95 backdrop-blur-xl border border-border shadow-2xl">
-                  {LLM_PROVIDERS.map((provider) => (
-                    <SelectGroup key={provider.id}>
-                      <SelectLabel className="text-xs font-semibold">
-                        {provider.name}
-                      </SelectLabel>
-                      {provider.models.map((model) => (
-                        <SelectItem
-                          key={model.id}
-                          value={model.id}
-                          className="text-xs hover:cursor-pointer py-3"
-                        >
-                          <div className="flex flex-col gap-1 hover:cursor-pointer">
-                            <div className="flex items-center gap-2 ">
-                              <span className="font-medium">
-                                {model.name}
-                              </span>
-                              {model.isPro && (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-xs h-4 px-1"
-                                >
-                                  PRO
-                                </Badge>
-                              )}
-                            </div>
-                            <span className="text-[10px] text-muted-foreground">
-                              {model.id === "gpt-4o" &&
-                                "Best for complex reasoning and analysis"}
-                              {model.id === "gpt-4o-mini" &&
-                                "Fast, efficient for simple tasks"}
-                              {model.id === "o1-preview" &&
-                                "Advanced reasoning with chain-of-thought"}
-                              {model.id === "o1-mini" &&
-                                "Lightweight reasoning model"}
-                              {model.id === "claude-3-5-sonnet" &&
-                                "Best for creative and nuanced content"}
-                              {model.id === "claude-3-5-haiku" &&
-                                "Fast Claude model for quick tasks"}
-                              {model.id === "claude-3-opus" &&
-                                "Most capable Claude for complex work"}
-                              {model.id === "gemini-1.5-pro" &&
-                                "Google's best for multimodal tasks"}
-                              {model.id === "gemini-1.5-flash" &&
-                                "Fast Google model for quick responses"}
-                              {model.id === "gemini-2.0-flash-exp" &&
-                                "Experimental features and capabilities"}
-                              {model.id === "llama-3.1-sonar-large" &&
-                                "Open-source with web search"}
-                              {model.id === "llama-3.1-sonar-small" &&
-                                "Lightweight with web search"}
-                              {model.id === "llama-3.1-sonar-huge" &&
-                                "Most powerful open-source option"}
-                              {model.id === "grok-2-1212" &&
-                                "Latest Grok with real-time knowledge"}
-                              {model.id === "grok-2-vision-1212" &&
-                                "Grok with image understanding"}
-                              {model.id === "deepseek-r1" &&
-                                "Specialized for research tasks"}
-                              {model.id === "deepseek-r1-distill-llama-70b" &&
-                                "Research-focused, large model"}
-                              {model.id === "mixtral-8x7b" &&
-                                "Efficient mixture of experts model"}
-                              {model.id === "mixtral-8x22b" &&
-                                "Large MoE for complex tasks"}
-                              {model.id === "mistral-large" &&
-                                "Mistral's flagship model"}
-                              {model.id === "mistral-nemo" &&
-                                "Balanced performance model"}
-                              {model.id === "nemotron-70b" &&
-                                "NVIDIA's large language model"}
-                            </span>
+              
+              {/* Agent & Model Capsule */}
+              <div className="flex items-center bg-muted/20 hover:bg-muted/40 shadow-sm rounded-2xl p-1 pl-3 transition-all duration-300">
+                 {/* Agent Selector - Compact */}
+                 <div className="flex items-center gap-2 pr-3 border-r border-border/5">
+                     <Select value={selectedAgent} onValueChange={(val) => {
+                        if (val === 'create_new') {
+                             setShowCreateAgentModal(true);
+                        } else {
+                             setSelectedAgent(val);
+                        }
+                    }}>
+                      <SelectTrigger className="h-9 border-none bg-transparent p-0 text-xs font-medium focus:ring-0 focus:ring-offset-0 focus:bg-transparent data-[state=open]:bg-transparent w-auto px-2 hover:bg-white/5 rounded-lg transition-colors">
+                         <div className="flex items-center justify-center text-primary">
+                            <Bot size={18} />
+                         </div>
+                      </SelectTrigger>
+                      <SelectContent className="w-[260px] rounded-2xl border-none bg-[#F8FAFC]/95 dark:bg-slate-900/90 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-50 ring-1 ring-black/5 dark:ring-white/5">
+                          <div className="px-3 py-2 border-b border-white/10 mb-1">
+                             <h4 className="font-semibold text-sm text-blue-600 dark:text-foreground">
+                                {agents.find(a => a.id === selectedAgent)?.name || customAgents.find(a => a.id === selectedAgent)?.name || "General Assistant"}
+                             </h4>
+                             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Select Assistant</p>
                           </div>
-                        </SelectItem>
-                      ))}
-                      <SelectSeparator />
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
+                          
+                          <SelectGroup>
+                              <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 py-1.5 font-bold mt-1">System</SelectLabel>
+                              {agents.map(a => <SelectItem key={a.id} value={a.id} className="text-xs cursor-pointer focus:bg-blue-50 focus:text-blue-900 dark:focus:bg-white/10 dark:focus:text-white">{a.name}</SelectItem>)}
+                              {customAgents.length > 0 && <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 py-1.5 font-bold mt-2">Custom</SelectLabel>}
+                              {customAgents.map(a => <SelectItem key={a.id} value={a.id} className="text-xs cursor-pointer focus:bg-blue-50 focus:text-blue-900 dark:focus:bg-white/10 dark:focus:text-white">{a.name}</SelectItem>)}
+                          </SelectGroup>
+                          <SelectSeparator className="bg-white/10 my-1" />
+                          <div className="p-1">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="w-full justify-start text-xs h-8 px-2 hover:bg-blue-50 hover:text-blue-900 dark:hover:bg-white/10 dark:hover:text-white"
+                              onClick={() => setShowCreateAgentModal(true)}
+                            >
+                              <PlusCircle size={14} className="mr-2" />
+                              Create New Agent
+                            </Button>
+                          </div>
+                      </SelectContent>
+                    </Select>
+                 </div>
 
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-muted-foreground hover:cursor-pointer"
-                onClick={() => {
-                  if (currentSessionId) {
-                    setShowDeleteModal(currentSessionId);
-                  }
-                }}
-              >
-                <Trash2 size={16} />
-              </Button>
+                 {/* Model Selector - Detailed Version */}
+                 <div className="pl-3 pr-2">
+                    <Select value={selectedModel} onValueChange={setSelectedModel}>
+                      <SelectTrigger className="h-auto border-none bg-transparent p-0 text-xs hover:text-foreground focus:ring-0 focus:ring-offset-0 focus:bg-transparent data-[state=open]:bg-transparent w-[180px] sm:w-[220px]">
+                         <div className="flex items-center gap-2 text-left">
+                            <div className="flex flex-col">
+                                <span className="font-semibold text-sm leading-tight text-blue-700 dark:text-white">
+                                    {selectedModelInfo?.model.name || "GPT-4o"}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground leading-tight line-clamp-1 opacity-80">
+                                  {selectedModel === "gpt-4o" && "Best for complex reasoning"}
+                                  {selectedModel === "gpt-4o-mini" && "Fast, efficient for simple tasks"}
+                                  {selectedModel === "o1-preview" && "Advanced reasoning"}
+                                  {selectedModel === "claude-3-5-sonnet" && "Best for nuances"}
+                                  {!["gpt-4o", "gpt-4o-mini", "o1-preview", "claude-3-5-sonnet"].includes(selectedModel) && "AI Model"}
+                                </span>
+                            </div>
+                         </div>
+                      </SelectTrigger>
+                      <SelectContent className="w-[300px] rounded-2xl border-none bg-[#F8FAFC]/95 dark:bg-slate-900/90 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] z-50 ring-1 ring-black/5 dark:ring-white/5">
+                          {LLM_PROVIDERS.map(p => (
+                             <SelectGroup key={p.id}>
+                                <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground px-2 py-1.5 font-bold">{p.name}</SelectLabel>
+                                {p.models.map(m => (
+                                   <SelectItem key={m.id} value={m.id} className="text-xs cursor-pointer py-2 focus:bg-blue-50 dark:focus:bg-white/10">
+                                     <div className="flex flex-col gap-0.5">
+                                        <span className={`font-medium ${selectedModel === m.id ? "text-blue-700 dark:text-blue-400" : "text-foreground"}`}>{m.name}</span>
+                                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                                           {m.id === "gpt-4o" && "Complex reasoning & analysis"}
+                                           {m.id === "claude-3-5-sonnet" && "Creative & nuanced content"}
+                                           {m.id === "deepseek-r1" && "Specialized for research"}
+                                           {!["gpt-4o", "claude-3-5-sonnet", "deepseek-r1"].includes(m.id) && "Standard capability"}
+                                        </span>
+                                     </div>
+                                   </SelectItem>
+                                ))}
+                             </SelectGroup>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                 </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 ml-1">
+                 <Button 
+                    variant="ghost" 
+                    className={`h-auto py-1 px-3 gap-3 rounded-xl transition-all border border-transparent hover:bg-muted/60 ${knowledgeBase 
+                        ? "bg-green-500/10 hover:bg-green-500/20" 
+                        : "hover:border-border/50"
+                    }`}
+                    onClick={() => setShowTrainModal(true)}
+                 >
+                    <div className={`p-1.5 rounded-lg ${knowledgeBase ? "bg-green-500/20 text-green-500" : "bg-blue-50 text-blue-700 dark:bg-primary/10 dark:text-primary"}`}>
+                        <Brain size={16} />
+                    </div>
+                    <div className="flex flex-col items-start text-left">
+                        <span className={`font-semibold text-sm leading-tight ${knowledgeBase ? "text-green-500" : "text-blue-700 dark:text-foreground"}`}>Train</span>
+                        <span className="text-[10px] text-muted-foreground leading-tight">
+                            {knowledgeBase ? "Active" : "Personalize"}
+                        </span>
+                    </div>
+                 </Button>
+
+                 <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-9 w-9 rounded-full bg-muted/40 hover:bg-destructive/10 hover:text-destructive transition-colors ml-1"
+                    onClick={() => {
+                      if (currentSessionId) {
+                        setShowDeleteModal(currentSessionId);
+                      }
+                    }}
+                  >
+                    <Trash2 size={16} />
+                  </Button>
+              </div>
+
             </div>
           </div>
         </div>
@@ -1701,50 +2062,30 @@ export default function JarvisPage() {
                   Ask questions, analyze papers, or get help with your writing.
                 </p>
 
-                <div className="flex flex-wrap items-center justify-center gap-3 max-w-2xl">
-                  <Button
-                    variant="outline"
-                    className="h-10 rounded-lg gap-2 border-primary/20 hover:border-primary hover:bg-primary/5 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.1)] hover:scale-[1.02] transition-all duration-300 cursor-pointer"
-                    onClick={() => setInputMessage("Summarize research paper")}
-                  >
-                    <FileText size={16} className="text-primary" />
-                    <span>Summarize research paper</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-10 rounded-lg gap-2 border-primary/20 hover:border-primary hover:bg-primary/5 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.1)] hover:scale-[1.02] transition-all duration-300 cursor-pointer"
-                    onClick={() => setInputMessage("Explain topic simply")}
-                  >
-                    <MessageSquare size={16} className="text-primary" />
-                    <span>Explain topic simply</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-10 rounded-lg gap-2 border-primary/20 hover:border-primary hover:bg-primary/5 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.1)] hover:scale-[1.02] transition-all duration-300 cursor-pointer"
-                    onClick={() => setInputMessage("Get research roadmap")}
-                  >
-                    <Map size={16} className="text-primary" />
-                    <span>Get research roadmap</span>
-                  </Button>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-center gap-3 mt-3 max-w-2xl">
-                  <Button
-                    variant="outline"
-                    className="h-10 rounded-lg gap-2 border-primary/20 hover:border-primary hover:bg-primary/5 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.1)] hover:scale-[1.02] transition-all duration-300 cursor-pointer"
-                    onClick={() => setInputMessage("Literature survey")}
-                  >
-                    <BookOpen size={16} className="text-primary" />
-                    <span>Literature survey</span>
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="h-10 rounded-lg gap-2 border-primary/20 hover:border-primary hover:bg-primary/5 hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.1)] hover:scale-[1.02] transition-all duration-300 cursor-pointer"
-                    onClick={() => setInputMessage("Research process")}
-                  >
-                    <Sparkles size={16} className="text-primary" />
-                    <span>Research process</span>
-                  </Button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-2xl w-full">
+                  {[
+                    { title: "Analyze Paper", desc: "Summarize & extract insights", icon: FileText, prompt: "Summarize this research paper and highlight key findings." },
+                    { title: "Literature Review", desc: "Find patterns & citations", icon: BookOpen, prompt: "Conduct a literature review on..." },
+                    { title: "Draft Abstract", desc: "Generate structured abstract", icon: Edit3, prompt: "Draft an abstract for a paper about..." },
+                    { title: "Methodology", desc: "Refine research methods", icon: Map, prompt: "Suggest improvements for my methodology section." },
+                  ].map((card, idx) => {
+                    const CardIcon = card.icon;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => setInputMessage(card.prompt)}
+                        className="flex items-center gap-3 p-3 bg-card/20 hover:bg-card/40 shadow-sm hover:shadow-md rounded-xl transition-all duration-300 hover:-translate-y-0.5 group text-left ring-1 ring-transparent hover:ring-border/20"
+                      >
+                        <div className="p-2 rounded-lg bg-primary/10 text-primary group-hover:scale-110 transition-transform flex-shrink-0">
+                          <CardIcon size={18} />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                            <h3 className="font-semibold text-xs text-foreground truncate">{card.title}</h3>
+                            <p className="text-[10px] text-muted-foreground truncate opacity-80">{card.desc}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ) : (
@@ -1752,19 +2093,54 @@ export default function JarvisPage() {
                 {messages.map((message) => (
                   <div
                     key={message.id}
-                    className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"
+                    className={`flex flex-col ${message.sender === "user" ? "items-end" : "items-start"
                       }`}
                   >
                     <div
-                      className={`max-w-[95%] sm:max-w-[85%] md:max-w-[80%] p-4 ${message.sender === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted/50 text-card-foreground border-l-2 border-primary"
+                      className={`max-w-[95%] sm:max-w-[85%] md:max-w-[80%] p-5 shadow-sm ${message.sender === "user"
+                        ? "bg-gradient-to-br from-primary to-primary/90 text-primary-foreground rounded-2xl rounded-tr-sm shadow-md"
+                        : "bg-muted/20 backdrop-blur-sm text-foreground rounded-2xl rounded-tl-sm ml-2 dark:border dark:border-white/10 dark:shadow-[0_0_15px_rgba(255,255,255,0.05)]"
                         }`}
                     >
-                      <div className="message-bubble">
-                        {message.blocks?.map((block, i) => (
-                          <BlockRenderer key={i} block={block} />
-                        ))}
+                      <div className="message-bubble w-full relative group">
+                        {/* Sender Label for Collaborators */}
+                        {message.sender === "collaborator" && (
+                             <div className="absolute -top-5 left-0 text-[10px] text-muted-foreground flex items-center gap-1">
+                                <div className="w-4 h-4 rounded-full bg-orange-500/20 text-orange-500 flex items-center justify-center text-[8px] font-bold">
+                                    {message.senderName?.[0] || "C"}
+                                </div>
+                                {message.senderName || "Collaborator"}
+                             </div>
+                        )}
+                        
+                        {editingMessageId === message.id ? (
+                            <div className="w-full mt-2">
+                               <Textarea
+                                  value={editContent}
+                                  onChange={(e) => setEditContent(e.target.value)}
+                                  className="min-h-[100px] bg-background/50 border-primary/20 focus:border-primary mb-2 text-sm"
+                               />
+                               <div className="flex justify-end gap-2">
+                                  <Button size="sm" variant="ghost" onClick={cancelEditing}>Cancel</Button>
+                                  <Button size="sm" onClick={() => submitEdit(message.id, editContent)}>Save & Submit</Button>
+                               </div>
+                            </div>
+                        ) : (
+                            <>
+                                {message.sender === 'user' && (
+                                    <button 
+                                        onClick={() => startEditing(message)}
+                                        className="absolute -left-8 top-0 opacity-0 group-hover:opacity-100 p-1.5 text-muted-foreground hover:text-primary transition-all bg-muted/20 rounded-full"
+                                        title="Edit Prompt"
+                                    >
+                                        <Edit2 size={14} />
+                                    </button>
+                                )}
+                                {message.blocks?.map((block, i) => (
+                                  <BlockRenderer key={i} block={block} />
+                                ))}
+                            </>
+                        )}
                       </div>
 
 
@@ -1777,7 +2153,7 @@ export default function JarvisPage() {
                                 <li
                                   key={index}
                                   onClick={() => window.open(resource.url, "_blank")}
-                                  className="group flex items-center justify-between p-2 rounded-lg border border-border/40 hover:bg-muted/50 cursor-pointer transition-colors"
+                                  className="group flex items-center justify-between p-2 rounded-lg bg-muted/20 hover:bg-muted/40 cursor-pointer transition-colors"
                                 >
                                   <div className="flex-1 min-w-0 pr-2">
                                     <div className="flex items-center gap-2">
@@ -1799,7 +2175,7 @@ export default function JarvisPage() {
                       )}
 
                       <p
-                        className={`text-xs mt-3 ${message.sender === "user"
+                        className={`text-xs mt-1 ${message.sender === "user"
                           ? "text-primary-foreground/70"
                           : "text-muted-foreground"
                           }`}
@@ -1817,15 +2193,27 @@ export default function JarvisPage() {
                   <div className="flex justify-start">
                     <div className="bg-background/80 backdrop-blur-sm p-4 rounded-2xl">
                       <div className="flex items-center space-x-4">
-                        <div className="relative flex items-center justify-center animate-pulse-scale">
+                        <div className="relative flex items-center justify-center animate-pulse-scale mb-2">
                           <div className="absolute inset-0 bg-blue-500/40 blur-xl rounded-full" />
                           <div className="relative drop-shadow-[0_0_15px_rgba(59,130,246,0.8)]">
                             <ModernLogo size={32} animated={true} showText={false} />
                           </div>
                         </div>
-                        <span className="text-sm font-medium animate-text-wave bg-gradient-to-r from-blue-600 via-indigo-500 to-blue-600 bg-clip-text text-transparent">
-                          <JarvisThinking />
-                        </span>
+                        <div className="flex flex-col gap-2 items-center">
+                            <span className="text-sm font-medium animate-text-wave bg-gradient-to-r from-blue-600 via-indigo-500 to-blue-600 bg-clip-text text-transparent text-center">
+                              <JarvisThinking />
+                            </span>
+                            <div className="h-6"> {/* Fixed height container for button */}
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className="h-6 px-2 text-[10px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                    onClick={handleStopGeneration}
+                                >
+                                    <StopCircle size={10} className="mr-1" /> Stop generating
+                                </Button>
+                            </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1855,12 +2243,12 @@ export default function JarvisPage() {
                       <button
                         key={idx}
                         onClick={() => setInputMessage(prompt.text)}
-                        className="px-2.5 py-1.5 bg-muted/30 border border-primary/20 rounded-lg text-left transition-all hover:bg-primary/5 hover:border-primary hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.1)] hover:scale-[1.02] duration-300 cursor-pointer group whitespace-nowrap"
+                        className="px-2.5 py-1.5 bg-muted/20 hover:bg-muted/40 rounded-lg text-left transition-all hover:shadow-[0_0_15px_rgba(var(--primary-rgb),0.1)] hover:text-primary-foreground duration-300 cursor-pointer group whitespace-nowrap"
                       >
                         <div className="flex items-center gap-1.5">
                           <PromptIcon
                             size={12}
-                            className="text-muted-foreground group-hover:text-primary-foreground flex-shrink-0"
+                            className="text-blue-700 dark:text-muted-foreground group-hover:text-primary-foreground flex-shrink-0"
                           />
                           <span className="text-xs font-medium text-foreground group-hover:text-primary-foreground">
                             {prompt.text}
@@ -1879,7 +2267,7 @@ export default function JarvisPage() {
                 {uploadedFiles.map((file, index) => (
                   <div
                     key={index}
-                    className="p-2 bg-muted/40 border border-border rounded-xl flex items-center justify-between hover:border-primary/50 transition-all group"
+                    className="p-2 bg-muted/30 rounded-xl flex items-center justify-between hover:bg-muted/50 transition-all group"
                   >
                     <div className="flex items-center space-x-3 overflow-hidden">
                       {file.type.startsWith('image/') ? (
@@ -1933,16 +2321,21 @@ export default function JarvisPage() {
                 </div>
               )}
 
-              <div className="flex-1 relative min-w-0">
-                <Input
+              <div className="flex-1 relative min-w-0 shadow-xl rounded-2xl bg-card/40 backdrop-blur-xl ring-0 focus-within:ring-0 focus-within:bg-card/60 transition-all duration-300">
+                <Textarea
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Ask me anything about your project..."
-                  className="w-full h-14 md:h-16 pl-5 pr-28 text-base md:text-lg rounded-2xl focus:border-primary transition-all"
+                  onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendMessage();
+                      }
+                  }}
+                  placeholder="Ask any question..."
+                  className="w-full min-h-[60px] py-4 pl-5 pr-32 text-base bg-transparent border-none focus-visible:ring-0 resize-none max-h-[200px] placeholder:text-muted-foreground/50"
                   disabled={isLoading}
                 />
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2">
+                <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
                   <input
                     type="file"
                     ref={fileInputRef}
@@ -1954,7 +2347,7 @@ export default function JarvisPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-muted-foreground hover:text-foreground h-10 w-10 rounded-lg hover:bg-accent"
+                    className="text-blue-700 dark:text-white hover:text-foreground h-10 w-10 rounded-lg hover:bg-accent transition-all duration-300 ease-out hover:scale-125 active:scale-95"
                     disabled={isLoading}
                     onClick={() => fileInputRef.current?.click()}
                   >
@@ -1963,7 +2356,7 @@ export default function JarvisPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    className={`text-muted-foreground hover:text-foreground h-10 w-10 rounded-lg hover:bg-accent ${isRecording ? "text-destructive animate-pulse" : ""
+                    className={`text-blue-700 dark:text-white hover:text-foreground h-10 w-10 rounded-lg hover:bg-accent transition-all duration-300 ease-out hover:scale-125 active:scale-95 ${isRecording ? "text-destructive animate-pulse" : ""
                       }`}
                     disabled={isLoading}
                     onClick={handleVoiceInput}
@@ -1973,23 +2366,24 @@ export default function JarvisPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    className={`text-muted-foreground hover:text-foreground h-10 w-10 rounded-lg hover:bg-accent ${showWhiteboard ? "text-primary bg-primary/10" : ""}`}
+                    className={`text-blue-700 dark:text-muted-foreground hover:text-foreground h-10 w-10 rounded-lg hover:bg-accent transition-all duration-300 ease-out hover:scale-125 active:scale-95 ${showWhiteboard ? "text-primary bg-primary/10" : ""}`}
                     disabled={isLoading}
                     onClick={handleWhiteboard}
                     title="Whiteboard"
                   >
                     <Presentation size={20} />
                   </Button>
+
                 </div>
               </div>
 
               <Button
-                onClick={handleSendMessage}
-                disabled={!inputMessage.trim() || isLoading}
-                className="h-14 md:h-16 w-14 md:w-16 bg-primary hover:bg-primary/90 text-primary-foreground rounded-full flex-shrink-0 transition-all hover:scale-105"
+                onClick={isLoading ? handleStopGeneration : handleSendMessage}
+                disabled={!inputMessage.trim() && !isLoading}
+                className={`h-14 md:h-14 w-14 md:w-14 rounded-xl flex-shrink-0 transition-all hover:scale-105 ${isLoading ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground" : "bg-primary hover:bg-primary/90 text-primary-foreground"}`}
               >
                 {isLoading ? (
-                  <Loader2 size={22} className="animate-spin" />
+                  <StopCircle size={22} className="animate-pulse" />
                 ) : (
                   <Send size={22} />
                 )}
@@ -2013,15 +2407,15 @@ export default function JarvisPage() {
             }}
           >
             <div
-              className="bg-card backdrop-blur-xl p-6 rounded-2xl border border-border/50 shadow-2xl max-w-md w-full mx-4 relative z-[1000] overflow-hidden"
-              style={{ pointerEvents: 'auto', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}
+              className="bg-[#F8FAFC]/95 dark:bg-slate-900/90 backdrop-blur-2xl p-6 rounded-2xl border-none shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] max-w-md w-full mx-4 relative z-[1000] overflow-hidden ring-1 ring-black/5 dark:ring-white/5"
+              style={{ pointerEvents: 'auto' }}
               onClick={(e) => e.stopPropagation()}
             >
               {/* Gradient Border Effect - Theme Aware */}
               <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
 
               <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-foreground font-space-grotesk tracking-tight">
+                <h3 className="text-xl font-bold font-space-grotesk tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-indigo-600 dark:from-white dark:to-gray-300">
                   Share Chat
                 </h3>
                 <Button
@@ -2048,14 +2442,14 @@ export default function JarvisPage() {
                 <div className="space-y-3">
                   <Button
                     variant="outline"
-                    className="w-full justify-start bg-card/50 hover:bg-primary/5 hover:border-primary/30 cursor-pointer h-16 border-border/50 transition-all group"
+                    className="w-full justify-start bg-white dark:bg-black/20 hover:bg-primary/5 hover:border-primary/30 cursor-pointer h-16 border-border/50 transition-all group shadow-sm"
                     style={{ pointerEvents: 'auto' }}
                     onClick={() =>
                       handleShare(showShareModal, { type: "external" })
                     }
                   >
                     <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mr-4 group-hover:bg-primary/20 transition-colors">
-                      <Link size={18} className="text-primary" />
+                      <Link size={18} className="text-blue-700 dark:text-white" />
                     </div>
                     <div className="flex flex-col items-start">
                       <span className="text-sm font-bold text-foreground font-space-grotesk">Copy Link</span>
@@ -2067,7 +2461,7 @@ export default function JarvisPage() {
                   </Button>
                   <Button
                     variant="outline"
-                    className="w-full justify-start bg-card/50 hover:bg-primary/5 hover:border-primary/30 cursor-pointer h-16 border-border/50 transition-all group"
+                    className="w-full justify-start bg-white dark:bg-black/20 hover:bg-primary/5 hover:border-primary/30 cursor-pointer h-16 border-border/50 transition-all group shadow-sm"
                     style={{ pointerEvents: 'auto' }}
                     onClick={() =>
                       handleShare(showShareModal, { type: "collaborator" })
@@ -2075,7 +2469,7 @@ export default function JarvisPage() {
                   >
                     {/* Changed from Green to Primary Blue */}
                     <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center mr-4 group-hover:bg-primary/20 transition-colors">
-                      <Users size={18} className="text-primary" />
+                      <Users size={18} className="text-blue-700 dark:text-white" />
                     </div>
                     <div className="flex flex-col items-start">
                       <span className="text-sm font-bold text-foreground font-space-grotesk">Invite Collaborators</span>
@@ -2094,7 +2488,7 @@ export default function JarvisPage() {
                     </label>
                     <Input
                       placeholder="colleague@example.com"
-                      className="bg-black/20 border-white/10 h-10"
+                      className="bg-background border-input h-10 text-foreground"
                       value={collaboratorEmail}
                       onChange={(e) => setCollaboratorEmail(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleInviteCollaborator()}
@@ -2137,8 +2531,8 @@ export default function JarvisPage() {
             onClick={() => setShowSaveModal(null)}
           >
             <div
-              className="bg-card backdrop-blur-xl p-6 rounded-2xl border border-border/50 shadow-2xl max-w-md w-full mx-4 relative z-[1000] overflow-hidden"
-              style={{ pointerEvents: 'auto', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}
+              className="bg-[#F8FAFC]/95 dark:bg-slate-900/90 backdrop-blur-2xl p-6 rounded-2xl border-none shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] max-w-md w-full mx-4 relative z-[1000] overflow-hidden ring-1 ring-black/5 dark:ring-white/5"
+              style={{ pointerEvents: 'auto' }}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
@@ -2230,8 +2624,8 @@ export default function JarvisPage() {
           onClick={() => setShowDeleteModal(null)}
         >
           <div
-            className="bg-card backdrop-blur-xl p-6 rounded-2xl border border-border/50 shadow-2xl max-w-sm w-full mx-4 relative z-[1000] overflow-hidden"
-            style={{ pointerEvents: 'auto', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}
+            className="bg-[#F8FAFC]/95 dark:bg-slate-900/90 backdrop-blur-2xl p-6 rounded-2xl border-none shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] max-w-sm w-full mx-4 relative z-[1000] overflow-hidden ring-1 ring-black/5 dark:ring-white/5"
+            style={{ pointerEvents: 'auto' }}
             onClick={(e) => e.stopPropagation()}
           >
              <div className="flex flex-col items-center text-center space-y-4">
@@ -2246,15 +2640,15 @@ export default function JarvisPage() {
                 </div>
                 <div className="flex gap-3 w-full pt-2">
                     <Button 
-                        variant="outline" 
+                        variant="ghost" 
                         className="flex-1 hover:bg-muted"
                         onClick={() => setShowDeleteModal(null)}
                     >
                         Cancel
                     </Button>
                     <Button 
-                        variant="outline"
-                        className="flex-1 border-red-500/50 text-red-600 dark:text-red-500 hover:bg-red-500/10 hover:border-red-500 hover:text-red-700 dark:hover:text-red-400 transition-colors"
+                        variant="ghost"
+                        className="flex-1 bg-red-500/10 text-red-600 dark:text-red-500 hover:bg-red-500/20 hover:text-red-700 dark:hover:text-red-400 transition-colors"
                         onClick={() => {
                             // Delete Logic
                             setChatSessions(prev => prev.filter(c => c.id !== showDeleteModal));
@@ -2292,6 +2686,97 @@ export default function JarvisPage() {
           onAttach={handleAttachmentFromTool}
         />
       )}
-    </div >
+      {/* Create Agent Modal */}
+      <Dialog open={showCreateAgentModal} onOpenChange={setShowCreateAgentModal}>
+        <DialogContent className="bg-[#F8FAFC]/95 dark:bg-slate-900/90 backdrop-blur-2xl border-none shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] ring-1 ring-black/5 dark:ring-white/5">
+            <DialogHeader>
+                <DialogTitle>{editingAgentId ? "Edit Custom Agent" : "Create Custom Agent"}</DialogTitle>
+                <DialogDescription>
+                    {editingAgentId ? "Update the persona and instructions for this agent." : "Define a specific persona and instructions for this agent."}
+                </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                    <Label className="text-foreground">Agent Name</Label>
+                    <Input 
+                        placeholder="e.g. Python Expert, Patent Lawyer" 
+                        value={newAgentName}
+                        onChange={(e) => setNewAgentName(e.target.value)}
+                        className="bg-background border-input text-foreground placeholder:text-muted-foreground"
+                    />
+                </div>
+                <div className="space-y-2">
+                    <Label className="text-foreground">Instructions (System Prompt)</Label>
+                    <Textarea 
+                        placeholder="You are an expert in... You should always..." 
+                        className="h-32 bg-background border-input text-foreground placeholder:text-muted-foreground resize-none"
+                        value={newAgentInstructions}
+                        onChange={(e) => setNewAgentInstructions(e.target.value)}
+                    />
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/50 border border-border">
+                    <div className="space-y-0.5">
+                        <Label className="text-sm font-medium text-foreground">Enable Web Search</Label>
+                        <p className="text-xs text-muted-foreground">Allow agent to search the internet for answers</p>
+                    </div>
+                    <Switch 
+                        checked={newAgentIncludeLinks}
+                        onCheckedChange={setNewAgentIncludeLinks}
+                    />
+                </div>
+            </div>
+            <DialogFooter>
+                <Button variant="ghost" onClick={() => { setShowCreateAgentModal(false); setEditingAgentId(null); setNewAgentName(""); setNewAgentInstructions(""); setNewAgentIncludeLinks(true); }} className="hover:bg-muted text-muted-foreground hover:text-foreground">Cancel</Button>
+                <Button onClick={handleCreateAgent} disabled={!newAgentName.trim()}>{editingAgentId ? "Save Changes" : "Create Agent"}</Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Train Data Modal */}
+      <Dialog open={showTrainModal} onOpenChange={setShowTrainModal}>
+        <DialogContent className="bg-[#F8FAFC]/95 dark:bg-slate-900/90 backdrop-blur-2xl border-none shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] ring-1 ring-black/5 dark:ring-white/5">
+            <DialogHeader>
+                <DialogTitle>Train Knowledge Base</DialogTitle>
+                <DialogDescription>
+                    Upload PDFs/Documents to train the agent on specific knowledge.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-8 flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl bg-muted/20 relative">
+                <Upload className="h-10 w-10 text-muted-foreground mb-4" />
+                <div className="text-center space-y-2">
+                    <p className="text-sm font-medium">Drag & Drop or Click to Upload</p>
+                    <p className="text-xs text-muted-foreground">PDF, DOCX, TXT (Max 50MB)</p>
+                </div>
+                <Input 
+                    type="file" 
+                    multiple 
+                    className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"
+                    onChange={handleTrainUpload}
+                />
+            </div>
+            {resoucesToTrain.length > 0 && (
+                <div className="space-y-2">
+                    <p className="text-xs font-semibold">Selected Files:</p>
+                    {resoucesToTrain.map((f, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs p-2 bg-muted rounded">
+                            <span>{f.name}</span>
+                            <Button variant="ghost" size="sm" className="h-4 w-4 p-0" onClick={() => setResourcesToTrain(prev => prev.filter((_, idx) => idx !== i))}>
+                                <X size={10} />
+                            </Button>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <DialogFooter>
+                <Button variant="ghost" onClick={() => setShowTrainModal(false)}>Cancel</Button>
+                <Button onClick={startTraining} disabled={resoucesToTrain.length === 0} className="gap-2">
+                    <Sparkles size={14} />
+                    Start Training
+                </Button>
+            </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+    </div>
   );
 }

@@ -5,7 +5,6 @@ import { Space_Grotesk, Outfit } from "next/font/google"
 import { ThemeProvider } from "@/components/theme-provider"
 
 import "./globals.css"
-import CustomCursor from "@/components/custom-cursor"
 
 //context providers
 import { AuthProvider } from "./context/AuthContext";
@@ -56,7 +55,6 @@ export default function RootLayout({
         <meta name="api-keys-required" content="OPENAI_API_KEY for full functionality" />
       </head>
       <body className={`${outfit.className} font-sans antialiased bg-background text-foreground`} suppressHydrationWarning>
-        <CustomCursor />
         <AuthProvider>
           <UserProvider>
             <ProjectProvider>

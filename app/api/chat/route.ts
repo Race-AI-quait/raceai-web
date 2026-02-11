@@ -9,23 +9,30 @@ import { generateText } from "ai";
    SAFE JSON PARSER (AUTO-REPAIR)
 --------------------------------------------------------- */
 function safeParse(jsonString: string) {
+  // 1. Fast path: check if it looks like JSON
+  const cleaned = jsonString.trim();
+  if (!cleaned.startsWith("[") && !cleaned.startsWith("{")) {
+    return null; // Not JSON, fallback to text
+  }
+
   try {
-    return JSON.parse(jsonString);
+    return JSON.parse(cleaned);
   } catch (err) {
+    // 2. Attempt repair only if it looked like JSON but failed
     console.warn("Initial JSON parse failed. Attempting auto-repair...");
 
-    let repaired = jsonString
+    let repaired = cleaned
       .replace(/,\s*}/g, "}")       // remove trailing commas
       .replace(/,\s*]/g, "]")       // remove trailing commas
       .replace(/“|”/g, '"')         // smart quotes → "
       .replace(/‘|’/g, "'")         // smart single quotes → '
       .replace(/(\w+):/g, '"$1":')  // non-quoted keys → quoted
-      .trim();
+      .replace(/[\n\r\t]/g, " ");   // remove newlines
 
     try {
       return JSON.parse(repaired);
     } catch (err2) {
-      console.error("Auto-repair failed:", err2);
+      // Quiet failure - we will fallback to text anyway
       return null;
     }
   }
@@ -117,7 +124,7 @@ function getModel(modelId: string) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { messages, model = "gpt-4o", includeResources = true } = body;
+    const { messages, model = "gpt-4o", includeResources = true, systemInstruction } = body;
 
     const last = messages[messages.length - 1];
 
@@ -155,11 +162,9 @@ export async function POST(request: NextRequest) {
     ----------------------------- */
     const modelInstance = getModel(model);
 
-    const response = await generateText({
-      model: modelInstance as any,
-      system: `
-You are JARVIS, an advanced research assistant.
-
+    // Combine custom persona instruction with strict JSON enforcement
+    const baseSystemPrompt = systemInstruction || "You are JARVIS, an advanced research assistant.";
+    const jsonEnforcementPrompt = `
 You MUST return ONLY a JSON array named "blocks", example:
 
 [
@@ -174,7 +179,11 @@ STRICT RULES:
 - No commentary
 - Do NOT wrap JSON in text
 - Output raw JSON ONLY
-      `,
+`;
+
+    const response = await generateText({
+      model: modelInstance as any,
+      system: `${baseSystemPrompt}\n\n${jsonEnforcementPrompt}`,
       messages: formattedMessages,
     });
 

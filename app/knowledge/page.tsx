@@ -39,7 +39,7 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-
+import { useToast } from "@/components/ui/use-toast";
 
 import PDFViewer from "@/components/pdfviewer";
 import { useUser } from "../context/UserContext";
@@ -62,42 +62,84 @@ export default function KnowledgeDiscoveryPage() {
   const [selectedItem, setSelectedItem] = useState<ResearchItem | null>(null);
   const [showPDFViewer, setShowPDFViewer] = useState(false);
   const { user, updateUser } = useUser();
+  const { toast } = useToast();
+  const [savedItemsIds, setSavedItemsIds] = useState<string[]>([]);
+
+  // Hydrate saved items on mount
+  useState(() => {
+     if (typeof window !== "undefined") {
+        const saved = JSON.parse(localStorage.getItem("saved_papers") || "[]");
+        setSavedItemsIds(saved.map((p: any) => p.id));
+     }
+  });
+
+  const handleSelectItem = (item: ResearchItem | null) => {
+    setSelectedItem(item);
+    setShowPDFViewer(false); // Reset PDF viewer state
+  };
 
   const handleSavePaper = (item: ResearchItem) => {
-    // Simple verification check/toast logic could go here
-    // For now we assume we just added it to the context
-    // In a real app we'd call an API
-    console.log("Saving paper:", item.title);
-    
-    // Simulate updating user context with Saved Papers
-    // Note: The User type might need to be extended to hold this, 
-    // but for now we'll just log or use local storage as persistence shim if needed
-    // or assume the user context has a general 'metadata' field. 
-    // Let's create a local storage entry for 'saved_papers' to share with dashboard
-    
     const saved = JSON.parse(localStorage.getItem("saved_papers") || "[]");
-    if (!saved.find((p: any) => p.id === item.id)) {
+    const existingIndex = saved.findIndex((p: any) => p.id === item.id);
+    
+    if (existingIndex >= 0) {
+        // Remove
+        saved.splice(existingIndex, 1);
+        localStorage.setItem("saved_papers", JSON.stringify(saved));
+        setSavedItemsIds(prev => prev.filter(id => id !== item.id));
+        toast({
+            title: "Removed from library",
+            description: `"${item.title}" has been removed.`,
+        });
+        
+        // If we are currently viewing the saved library, we might want to close the modal if the item is removed? 
+        // Or just let the user see it until they close. 
+        // But we definitely want to update the filtered list if we are in that view.
+        // The filteredData logic below might need a trigger. 
+        // By updating `savedItemsIds`, we can trigger a re-render, but `filteredData` logic 
+        // needs to re-read localStorage or use the state.
+    } else {
+        // Add
         saved.push(item);
         localStorage.setItem("saved_papers", JSON.stringify(saved));
-        alert("Paper saved to library!"); 
-    } else {
-        alert("Paper already in library.");
+        setSavedItemsIds(prev => [...prev, item.id]);
+        toast({
+            title: "Saved to library",
+            description: `"${item.title}" has been saved.`,
+        });
     }
+  };
+
+  const handleShare = (item: ResearchItem) => {
+     const dummyLink = `${window.location.origin}/knowledge?paper=${item.id}`;
+     navigator.clipboard.writeText(dummyLink);
+     toast({
+        title: "Link copied",
+        description: "Shareable link copied to clipboard.",
+     });
+  };
+
+  const handleQuote = (item: ResearchItem) => {
+     const citation = `${item.author} (${new Date(item.date || Date.now()).getFullYear()}). ${item.title}. ${item.category}.`;
+     navigator.clipboard.writeText(citation);
+     toast({
+        title: "Citation copied",
+        description: "APA format citation copied to clipboard.",
+     });
   };
 
 
   const fieldCategories = [
     {
       id: "artificial-intelligence",
-      label: "Artificial Intelligence",
+      label: "AI & ML",
       icon: Brain,
     },
-    { id: "machine-learning", label: "Machine Learning", icon: TrendingUp },
-    { id: "quantum-computing", label: "Quantum Computing", icon: Atom },
-    { id: "biotechnology", label: "Biotechnology", icon: Beaker },
-    { id: "materials-science", label: "Materials Science", icon: Zap },
+    { id: "quantum-computing", label: "Quantum", icon: Atom },
+    { id: "biotechnology", label: "Biotech", icon: Beaker },
+    { id: "materials-science", label: "Materials", icon: Zap },
     { id: "energy", label: "Energy", icon: Star },
-    { id: "healthcare", label: "Healthcare", icon: Users },
+    { id: "healthcare", label: "Health", icon: Users },
   ];
 
   const sidebarCategories = [
@@ -144,11 +186,11 @@ export default function KnowledgeDiscoveryPage() {
       dotColor: "bg-red-500",
     },
     {
-      id: "funding",
-      label: "Funding Opportunities",
-      icon: DollarSign,
-      color: "bg-yellow-500/20",
-      dotColor: "bg-yellow-500",
+      id: "saved-library",
+      label: "My Library",
+      icon: Bookmark,
+      color: "bg-purple-500/20",
+      dotColor: "bg-purple-500",
     },
   ];
 
@@ -372,16 +414,32 @@ export default function KnowledgeDiscoveryPage() {
     console.log("Searching for:", searchQuery);
   };
 
-  // Filter logic
   const allResearchItems = Object.values(researchData).flat();
-  const filteredData = searchQuery.trim() 
-    ? allResearchItems.filter(item => 
+  let filteredData: ResearchItem[] = [];
+
+  if (searchQuery.trim()) {
+      filteredData = allResearchItems.filter(item => 
         item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.author?.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : (researchData[selectedCategory] || []);
+      );
+  } else if (selectedCategory === "saved-library") {
+    // Client-side hydration safety check
+    if (typeof window !== "undefined") {
+       // We use the state to trigger re-renders, but source of truth for THIS list is localStorage
+       // We can just filter all items by savedItemsIds to be safe and reactive
+       // Or re-read localStorage. Let's rely on savedItemsIds state which we keep in sync.
+       // Actually, let's just use the state we created: savedItemsIds is just IDs.
+       // We need the full objects.
+       const saved = JSON.parse(localStorage.getItem("saved_papers") || "[]");
+       filteredData = saved;
+    } else {
+       filteredData = [];
+    }
+  } else {
+    filteredData = researchData[selectedCategory] || [];
+  }
 
   const displayTitle = searchQuery.trim() 
     ? `Search Results for "${searchQuery}"`
@@ -391,9 +449,9 @@ export default function KnowledgeDiscoveryPage() {
   const selectedCategoryData = researchData[selectedCategory] || [];
 
   return (
-    <div className="h-screen overflow-y-hidden flex relative">
-      <div className="dark:block hidden">
-        <GeometricBackground variant="torus" />
+    <div className="h-screen overflow-y-hidden flex relative bg-background/50">
+      <div className="dark:block hidden fixed inset-0 z-0 pointer-events-none">
+        <GeometricBackground variant="orb" />
       </div>
       <NavigationSidebar />
 
@@ -514,68 +572,59 @@ export default function KnowledgeDiscoveryPage() {
               <ScrollArea className="h-[calc(100vh-380px)]">
                 <div className="space-y-6 pr-2">
                   {filteredData.map((item) => (
-                    <div key={item.id} className="group" onClick={() => setSelectedItem(item)}>
-                      <Card className="card-default hover:border-primary transition-normal cursor-pointer hover:shadow-md">
-                        <CardHeader className="pb-4 p-6">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <CardTitle className="text-xl font-semibold text-foreground mb-3 leading-tight group-hover:text-primary transition-fast">
-                                {item.title}
-                              </CardTitle>
-                              {item.category && (
-                                <Badge
-                                  variant="secondary"
-                                  className="px-3 py-1 rounded-lg font-medium"
-                                >
-                                  {item.category}
-                                </Badge>
-                              )}
-                            </div>
-                            {item.url && (
-                              <button className="btn-ghost text-muted-foreground hover:text-primary h-8 w-8 p-0 rounded-lg">
-                                <ExternalLink size={16} />
-                              </button>
-                            )}
-                          </div>
-                        </CardHeader>
-                        <CardContent className="p-6 pt-0">
-                          <p className="text-muted-foreground mb-4 leading-relaxed line-clamp-2">
-                            {item.description}
-                          </p>
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-6 text-sm text-muted-foreground">
-                              {item.author && (
-                                <div className="flex items-center gap-2">
-                                  <Users
-                                    size={14}
-                                    className="text-muted-foreground"
-                                  />
-                                  <span className="font-medium">
-                                    {item.author}
-                                  </span>
+                    <div key={item.id} className="group" onClick={() => handleSelectItem(item)}>
+                      <div className="glass-card hover:bg-muted/40 transition-all cursor-pointer p-0 rounded-2xl border border-border/40 hover:border-primary/30 shadow-sm hover:shadow-lg group-hover:-translate-y-0.5 duration-300">
+                        <div className="p-5">
+                          <div className="flex items-start justify-between mb-3">
+                              <div className="flex-1 min-w-0 pr-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                  {item.category && (
+                                    <Badge
+                                      variant="secondary"
+                                      className="px-2 py-0.5 text-[10px] font-medium bg-primary/10 text-primary border-transparent h-5"
+                                    >
+                                      {item.category}
+                                    </Badge>
+                                  )}
+                                  {item.url && <ExternalLink size={12} className="text-muted-foreground opacity-50" />}
                                 </div>
-                              )}
-                              {item.date && (
-                                <div className="flex items-center gap-2">
-                                  <Calendar
-                                    size={14}
-                                    className="text-muted-foreground"
-                                  />
-                                  <span>
-                                    {new Date(item.date).toLocaleDateString()}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                            {item.citations && (
-                              <div className="flex items-center gap-2 bg-warning/10 text-warning px-3 py-1.5 rounded-lg text-sm font-medium">
-                                <Star size={14} className="text-warning" />
-                                <span className="text-warning font-mono">{item.citations}</span>
+                                <h3 className="text-lg font-semibold text-foreground leading-snug group-hover:text-primary transition-colors">
+                                  {item.title}
+                                </h3>
                               </div>
-                            )}
+                              {/* <button className="btn-ghost text-muted-foreground hover:text-primary h-8 w-8 p-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                                <ChevronRight size={18} />
+                              </button> */}
                           </div>
-                        </CardContent>
-                      </Card>
+                          
+                          <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2 mb-4">
+                             {item.description}
+                          </p>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-border/30">
+                             <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                {item.author && (
+                                  <div className="flex items-center gap-1.5 has-tooltip">
+                                     <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">
+                                        {item.author[0]}
+                                     </div>
+                                     <span className="truncate max-w-[100px]">{item.author}</span>
+                                  </div>
+                                )}
+                                {item.date && (
+                                   <span>{new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                )}
+                             </div>
+                             
+                             {item.citations && (
+                                <div className="flex items-center gap-1 text-xs font-medium text-amber-500/80 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                                   <Star size={10} className="fill-current" />
+                                   <span>{item.citations}</span>
+                                </div>
+                             )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -584,7 +633,7 @@ export default function KnowledgeDiscoveryPage() {
           </div>
 
           {/* Right Sidebar - Category Navigation */}
-          <div className="w-80 bg-card/50 backdrop-blur-sm border-l border-border/50 p-8 relative z-10">
+          <div className="w-64 bg-background/40 backdrop-blur-xl border-l border-border/50 p-6 relative z-10 flex flex-col h-full">
             <h3 className="text-xl font-semibold text-foreground mb-6">
               Research Categories
             </h3>
@@ -622,96 +671,136 @@ export default function KnowledgeDiscoveryPage() {
           </div>
         </div>
       </div>
-      {/* Detailed View Sheet */}
-      <Sheet open={!!selectedItem} onOpenChange={(open) => !open && setSelectedItem(null)}>
-        <SheetContent side="right" className="w-[600px] sm:w-[800px] sm:max-w-[90vw] overflow-y-auto bg-background/95 backdrop-blur-xl border-l border-border shadow-2xl z-[100]">
-           {selectedItem && (
-             <div className="space-y-8 py-6">
-                <SheetHeader className="space-y-4">
-                   <div className="flex items-center gap-3">
-                      <Badge variant="outline" className="text-primary border-primary/20">
-                         {selectedItem.category}
-                      </Badge>
-                      {selectedItem.date && (
-                        <span className="text-sm text-muted-foreground font-mono">
-                           {new Date(selectedItem.date).toLocaleDateString()}
-                        </span>
-                      )}
-                   </div>
-                   <SheetTitle className="text-3xl font-bold leading-tight">
-                      {selectedItem.title}
-                   </SheetTitle>
-                   <div className="flex items-center gap-6 text-sm text-muted-foreground border-b pb-6 border-white/5">
-                      {selectedItem.author && (
-                        <div className="flex items-center gap-2">
-                           <Users size={16} />
-                           <span className="text-foreground">{selectedItem.author}</span>
-                        </div>
-                      )}
-                      {selectedItem.citations && (
-                          <div className="flex items-center gap-2 text-warning">
-                             <Star size={16} />
-                             <span>{selectedItem.citations} citations</span>
-                          </div>
-                      )}
-                   </div>
-                </SheetHeader>
-
-                <div className="space-y-6">
-                   <div className="p-6 rounded-2xl bg-muted/30 border border-white/5">
-                      <h3 className="font-semibold mb-3 flex items-center gap-2">
-                         <Sparkles size={18} className="text-primary" />
-                         Abstract
-                      </h3>
-                      <p className="text-muted-foreground leading-relaxed text-lg">
-                         {selectedItem.description}
-                         <span className="text-muted-foreground/50 ml-1">
-                            (Full abstract content would be populated here in a production environment, pulling from the actual paper source or API.)
-                         </span>
-                      </p>
-                   </div>
-
-                   <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 rounded-xl border border-white/5 bg-background">
-                         <h4 className="font-medium text-sm text-muted-foreground mb-2">Key Concepts</h4>
-                         <div className="flex flex-wrap gap-2">
-                            {["Neural Networks", "Optimization", "Algorithms", "Data Efficiency"].map(tag => (
-                               <Badge key={tag} variant="secondary" className="bg-secondary/50">
-                                  {tag}
-                               </Badge>
-                            ))}
-                         </div>
-                      </div>
-                      <div className="p-4 rounded-xl border border-white/5 bg-background">
-                         <h4 className="font-medium text-sm text-muted-foreground mb-2">Funding Source</h4>
-                           <div className="flex items-center gap-2 mt-1">
-                              <DollarSign size={16} className="text-green-500" />
-                              <span>National Science Foundation</span>
-                           </div>
-                      </div>
-                   </div>
-
-                   <div className="flex gap-3 pt-4">
-                      <Button className="flex-1 bg-primary hover:bg-primary/90" onClick={() => setShowPDFViewer(true)}>
-                         <BookOpen size={16} className="mr-2" /> 
-                         Read Full Paper
-                      </Button>
-                      <Button variant="outline" className="flex-1" onClick={() => handleSavePaper(selectedItem)}>
-                         <Bookmark size={16} className="mr-2" />
-                         Save to Library
-                      </Button>
-                      <Button variant="ghost" size="icon">
-                         <Share2 size={18} />
-                      </Button>
-                      <Button variant="ghost" size="icon">
-                         <Quote size={18} />
-                      </Button>
-                   </div>
+      {/* Custom Modal for Details */}
+      {selectedItem && !showPDFViewer && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
+          <div 
+              className="absolute inset-0 bg-background/60 backdrop-blur-md transition-opacity" 
+              onClick={() => handleSelectItem(null)}
+          />
+          <div className="relative w-full max-w-4xl bg-card/95 backdrop-blur-3xl rounded-3xl shadow-2xl border border-border/50 overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
+             
+             {/* Modal Header Image/Gradient Placeholder */}
+             <div className="h-32 bg-gradient-to-r from-primary/10 via-primary/5 to-background relative border-b border-border/50">
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="absolute top-4 right-4 rounded-full bg-background/20 hover:bg-background/40 text-foreground"
+                    onClick={() => handleSelectItem(null)}
+                >
+                    <X size={18} />
+                </Button>
+                <div className="absolute bottom-6 left-8">
+                    <Badge variant="outline" className="bg-background/50 backdrop-blur text-foreground border-border">
+                        {selectedItem.category}
+                    </Badge>
                 </div>
              </div>
-           )}
-        </SheetContent>
-      </Sheet>
+
+             <div className="flex-1 overflow-y-auto p-8 pt-6">
+                 <div className="flex items-start justify-between gap-6 mb-6">
+                     <h2 className="text-3xl font-bold text-foreground leading-tight">
+                        {selectedItem.title}
+                     </h2>
+                     {selectedItem.date && (
+                        <div className="text-right shrink-0">
+                           <div className="text-sm font-medium text-muted-foreground">Published</div>
+                           <div className="text-sm text-foreground font-mono">{new Date(selectedItem.date).toLocaleDateString()}</div>
+                        </div>
+                     )}
+                 </div>
+
+                 <div className="flex items-center gap-6 pb-8 border-b border-border/40 mb-8">
+                     {selectedItem.author && (
+                        <div className="flex items-center gap-3">
+                           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                              {selectedItem.author[0]}
+                           </div>
+                           <div>
+                              <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Author</div>
+                              <div className="font-semibold text-foreground">{selectedItem.author}</div>
+                           </div>
+                        </div>
+                     )}
+                     {selectedItem.citations && (
+                        <div className="flex items-center gap-3">
+                           <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
+                              <Star size={18} className="fill-current" />
+                           </div>
+                           <div>
+                              <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Impact</div>
+                              <div className="font-semibold text-foreground">{selectedItem.citations} Citations</div>
+                           </div>
+                        </div>
+                     )}
+                 </div>
+
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div className="md:col-span-2 space-y-6">
+                       <div className="prose dark:prose-invert max-w-none">
+                          <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                             <Sparkles size={16} className="text-primary" />
+                             Abstract
+                          </h3>
+                          <p className="text-muted-foreground leading-relaxed text-lg">
+                             {selectedItem.description}
+                          </p>
+                          <p className="text-muted-foreground/60 text-sm mt-4 italic">
+                             Full content access requires subscription or institutional login. This preview is generated from open metadata.
+                          </p>
+                       </div>
+
+                       <div className="flex gap-3 pt-4">
+                          <Button size="lg" className="flex-1 bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all font-semibold" onClick={() => setShowPDFViewer(true)}>
+                             <BookOpen size={18} className="mr-2" /> 
+                             Read Paper
+                          </Button>
+                          <Button size="lg" variant="secondary" className="flex-1 bg-secondary/50 hover:bg-secondary/70" onClick={() => handleSavePaper(selectedItem)}>
+                             <Bookmark size={18} className={`mr-2 ${savedItemsIds.includes(selectedItem.id) ? "fill-current text-purple-500" : ""}`} />
+                             {savedItemsIds.includes(selectedItem.id) ? "Remove" : "Save Library"}
+                          </Button>
+                       </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div className="p-5 rounded-2xl bg-muted/30 border border-border/40">
+                             <h4 className="font-medium text-sm text-foreground mb-3 flex items-center gap-2">
+                                <Zap size={14} className="text-yellow-500" />
+                                Key Concepts
+                             </h4>
+                             <div className="flex flex-wrap gap-2">
+                                {["Neural Networks", "Optimization", "Algorithms", "Data Efficiency"].map(tag => (
+                                   <Badge key={tag} variant="secondary" className="bg-background/80 hover:bg-background transition-colors cursor-default">
+                                      {tag}
+                                   </Badge>
+                                ))}
+                             </div>
+                        </div>
+
+                        <div className="p-5 rounded-2xl bg-muted/30 border border-border/40">
+                             <h4 className="font-medium text-sm text-foreground mb-3 flex items-center gap-2">
+                                <DollarSign size={14} className="text-green-500" />
+                                Funding
+                             </h4>
+                             <p className="text-xs text-muted-foreground">
+                                Supported by <span className="text-foreground font-medium">National Science Foundation</span> grant #2024-AI-992.
+                             </p>
+                        </div>
+
+                        <div className="flex gap-2">
+                            <Button variant="outline" className="flex-1 h-10 border-border/50" onClick={() => handleShare(selectedItem)}>
+                                <Share2 size={14} />
+                            </Button>
+                            <Button variant="outline" className="flex-1 h-10 border-border/50" onClick={() => handleQuote(selectedItem)}>
+                                <Quote size={14} />
+                            </Button>
+                        </div>
+                    </div>
+                 </div>
+             </div>
+          </div>
+        </div>
+      )}
 
       {/* PDF Viewer Overlay */}
       {showPDFViewer && selectedItem && (

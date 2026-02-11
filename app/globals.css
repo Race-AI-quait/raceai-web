@@ -391,12 +391,14 @@ h6 {
    CARD COMPONENTS (Refined & Clean)
    ======================================== */
 
+/* ========================================
+   CARD COMPONENTS (Refined & Tech-Focused)
+   ======================================== */
+
 .card-default {
   background: var(--card);
   border: 1px solid rgba(226, 232, 240, 0.8);
-  /* Softer border */
   border-radius: 16px;
-  /* Modern radius */
   padding: 24px;
   color: var(--card-foreground);
   transition: all 300ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -410,17 +412,71 @@ h6 {
 }
 
 .dark .card-default {
-  background: rgba(17, 24, 39, 0.8);
-  /* Slightly transparent for depth */
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  /* Very subtle border */
+  background: rgba(17, 24, 39, 0.4); /* More transparent */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
 }
 
 .dark .card-default:hover {
-  border-color: rgba(59, 130, 246, 0.5);
-  /* Primary color with opacity */
+  border-color: rgba(59, 130, 246, 0.3);
+  background: rgba(17, 24, 39, 0.6);
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.3);
+}
+
+/* Premium Glass/Tech Card */
+.card-tech {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 24px; /* More rounded */
+  padding: 32px;
+  color: var(--card-foreground);
+  transition: all 400ms cubic-bezier(0.16, 1, 0.3, 1); /* Smooth elastic ease */
+  box-shadow: 
+    0 0 0 1px rgba(0,0,0,0.02),
+    0 8px 32px rgba(0,0,0,0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+.dark .card-tech {
+  background: rgba(10, 15, 30, 0.6); /* Deep navy tint */
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 
+    0 0 0 1px rgba(255,255,255,0.02),
+    0 20px 40px -10px rgba(0,0,0,0.5);
+}
+
+/* Shine effect on hover for tech card */
+.card-tech::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.05),
+    transparent
+  );
+  transition: 0.5s;
+  pointer-events: none;
+}
+
+.card-tech:hover::before {
+  left: 100%;
+  transition: 0.5s;
+}
+
+.dark .card-tech:hover {
+  border-color: rgba(99, 102, 241, 0.3); /* Indigo tint */
+  background: rgba(15, 23, 42, 0.8);
+  transform: translateY(-2px);
 }
 
 .card-glass {
@@ -429,7 +485,6 @@ h6 {
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.5);
   border-radius: 20px;
-  /* Even softer for glass */
   padding: 24px;
   color: var(--card-foreground);
   transition: all 300ms ease;
@@ -693,33 +748,14 @@ select:focus {
    ======================================== */
 
 @layer base {
-  * {
-    border-color: var(--border);
+  html, body {
+    height: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    overscroll-behavior-y: none; /* Prevent elastic bounce/rubber-banding */
   }
 
-
-
-  /* Force hide cursor on ALL interactive elements to prevent "hand" collision */
-  a, button, [role="button"], input, select, textarea, .cursor-pointer {
-    cursor: none !important; 
-  }
-
-  /* Define the subtle pulse animation */
-  @keyframes gradientPulse {
-      0% {
-          background-size: 100% 100%;
-          background-position: center;
-      }
-      100% {
-          background-size: 120% 120%;
-      }
-  }
-
-  /* FORCE HIDE CURSOR UNIVERSALLY - HIGH SPECIFICITY */
-  html, body, *, a, button, input, select, textarea, [role="button"] {
-      cursor: none !important;
-  }
-  
   body {
     font-family: var(--font-outfit), 'Inter', sans-serif;
     /* Primary Font: Outfit (User Requested) */
@@ -733,10 +769,27 @@ select:focus {
       background: #020817; /* Default Shadcn/Slate-950 */
       /* No global gradient here - Home page will handle its own */
       color: #ffffff;
-      
-      cursor: none !important; /* Global hide */
   }
 }
+
+/* ========================================
+   GLOBAL CURSOR HIDE - REMOVED
+   ======================================== */
+/* 
+html,
+body,
+*,
+*::before,
+*::after,
+a,
+button,
+input,
+select,
+textarea,
+[role="button"] {
+  cursor: none !important;
+} 
+*/
 
 /* ========================================
    Z-INDEX SYSTEM - PROPER LAYER MANAGEMENT

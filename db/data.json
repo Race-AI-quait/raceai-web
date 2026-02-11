@@ -1,0 +1,66 @@
+{
+  "users": [
+    {
+      "id": "user-1",
+      "email": "demo@raceai.com",
+      "full_name": "Demo User",
+      "created_at": "2026-02-08T13:22:28.129Z"
+    },
+    {
+      "id": "user-2",
+      "email": "collab@raceai.com",
+      "full_name": "Dr. Collaborator",
+      "created_at": "2026-02-08T13:22:28.129Z"
+    }
+  ],
+  "projects": [
+    {
+      "id": "proj-1",
+      "name": "Quantum Resistance Research",
+      "description": "Analyzing late-stage quantum supremacy papers.",
+      "owner_id": "user-1",
+      "status": "active",
+      "created_at": "2026-02-08T13:22:28.129Z",
+      "updated_at": "2026-02-08T13:22:28.129Z"
+    }
+  ],
+  "chats": [
+    {
+      "id": "chat-1",
+      "title": "Literature Review: Qubit Stability",
+      "project_id": "proj-1",
+      "owner_id": "user-1",
+      "model": "gpt-4o",
+      "is_pinned": true,
+      "created_at": "2026-02-08T13:22:28.129Z",
+      "updated_at": "2026-02-08T13:22:28.129Z"
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg-1",
+      "chat_id": "chat-1",
+      "role": "user",
+      "content": "Summarize the latest findings on qubit stability.",
+      "created_at": "2026-02-08T13:22:28.129Z"
+    },
+    {
+      "id": "msg-2",
+      "chat_id": "chat-1",
+      "role": "assistant",
+      "content": "Recent studies indicate a 40% improvement using error-correcting codes...",
+      "created_at": "2026-02-08T13:22:28.129Z"
+    }
+  ],
+  "collaborators": [
+    {
+      "id": "collab-1",
+      "project_id": "proj-1",
+      "user_id": "user-2",
+      "role": "viewer",
+      "created_at": "2026-02-08T13:22:28.129Z",
+      "invited_by": "user-1"
+    }
+  ],
+  "shared_chats": []
+}

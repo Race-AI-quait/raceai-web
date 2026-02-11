@@ -10,6 +10,8 @@ import { TodaysFocus } from "@/components/todays-focus"
 import { RecentPapers } from "@/components/recent-papers"
 import dynamic from "next/dynamic";
 const PDFViewer = dynamic(() => import("@/components/pdfviewer"), { ssr: false });
+import { ResearchChat } from "@/components/ResearchChat"; // Import new component
+import { useChatContext } from "@/app/context/ChatContext"; // Import context
 
 
 
@@ -33,7 +35,7 @@ import {
   ChevronRight,
   ChevronDown,
   Folder,
-  File,
+  File as FileIcon,
   Send,
   Mic,
   Play,
@@ -67,14 +69,12 @@ import { useToast } from "@/components/ui/use-toast";
 
 import { ProjectNode, ProjectCollaborator } from "@/app/types/project";
 
-interface ChatSession {
-  id: string
-  title: string
-  lastMessage: string
-  timestamp: Date
-  participants: string[]
-  messageCount: number
-}
+// Interface removed to favour Context type or local if strictly needed
+
+
+// Ensure ChatSession from context maps or is compatible if needed
+// We'll use the ID string for selection
+
 
 interface ChatMessage {
   id: string
@@ -102,20 +102,9 @@ export default function ResearchCollaborationPage() {
   const { toast } = useToast()
   const [viewMode, setViewMode] = useState<"overview" | "folder" | "file">("overview")
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["1", "2"]))
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    {
-      id: "1",
-      content:
-        "Hello! I'm your research assistant. Select a folder or upload a paper and I can help organize your research and create summaries.",
-      sender: "assistant",
-      timestamp: new Date(),
-    },
-  ])
-  const [chatInput, setChatInput] = useState("")
-  const [isGeneratingPodcast, setIsGeneratingPodcast] = useState(false)
-  const [podcastUrl, setPodcastUrl] = useState<string | null>(null)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [isChatLoading, setIsChatLoading] = useState(false)
+  
+  // REMOVED: Old chat state (chatMessages, chatInput, etc) were here.
+
 
   const { projects, addNode, updateNode, deleteNode, deleteProject, toggleProjectStar, addProject } = useProjects();
 
@@ -127,29 +116,40 @@ export default function ResearchCollaborationPage() {
 
   const [selectedFile, setSelectedFile] = useState<ProjectNode | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<ProjectNode | null>(null)
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null); // New state for chat selection
+  
+  const { chatSessions } = useChatContext(); // Get chats from context
 
   // Flatten projects to rootNodes for the tree view
   const projectStructure: ProjectNode[] = projects.map(p => {
     // Clone the rootNode to avoid mutating the context state directly
     const rootNodeClone = JSON.parse(JSON.stringify(p.rootNode));
 
-    // Inject "Chats" folder if it doesn't exist
-    const hasChats = rootNodeClone.children?.some((c: ProjectNode) => c.name === "Chats");
-    if (!hasChats && rootNodeClone.children) {
-      // Mock chats for the tree view
-      const mockChats: ProjectNode[] = (p.rootNode.associatedChats || []).map(chat => ({
+    // Inject "Chats" folder - STRICT FILTERING by Project ID
+    const projectChats = chatSessions.filter(c => c.projectId === p.id); 
+    
+    // We Map real chat sessions to file nodes
+    const chatNodes: ProjectNode[] = projectChats.map(chat => ({
         id: `chat-node-${chat.id}`,
-        name: chat.title,
+        name: chat.title || "Untitled Chat",
         type: "file",
-        fileType: "other", 
-      }));
+        fileType: "other", // Use specific icon logic later
+    }));
 
-      rootNodeClone.children.unshift({
-        id: `chats-${p.id}`,
-        name: "Chats",
-        type: "folder",
-        children: mockChats,
-      });
+    // Check if Chats folder exists, if so append, else create
+    const chatsFolder = rootNodeClone.children?.find((c: ProjectNode) => c.name === "Chats");
+    if (chatsFolder) {
+        // Append real chats if not already there (avoid dupes if tree is persisted)
+        // Since tree is rebuilt on render here from p.rootNode, we can just Replace or Merge.
+        // Simplified: We assume p.rootNode DOES NOT contain the dynamic chat nodes from ChatContext, so we inject them.
+        chatsFolder.children = [...(chatsFolder.children || []), ...chatNodes];
+    } else {
+        rootNodeClone.children = [{
+            id: `chats-${p.id}`,
+            name: "Chats",
+            type: "folder",
+            children: chatNodes
+        }, ...(rootNodeClone.children || [])];
     }
 
     return {
@@ -465,16 +465,20 @@ export default function ResearchCollaborationPage() {
   }
 
   const handleFileSelect = (file: ProjectNode) => {
-    if (file.id.startsWith("chat-")) {
-      // It's a chat node
+    if (file.id.startsWith("chat-node-")) {
+      const realChatId = file.id.replace("chat-node-", "");
+      setSelectedChatId(realChatId);
       toast({ title: "Opening Chat", description: `Loading chat: ${file.name}` });
-      // In future: setChatMessages(...) to load this specific chat
-      // For now, allow regular file selection logic to proceed or return? 
-      // If we treat it as a file, it might try to open PDFViewer which will fail for non-files.
-      // So we should handle it here.
       return;
     }
-
+    
+    // Reset chat selection if selecting a file
+    // setSelectedChatId(null); // Optional: do we want to keep chat open? User said "Race Chat" is a sidebar, so maybe keep it open?
+    // But usually clicking a chat opens it. 
+    // Let's keep it simple: If you click a file, you view the file. Use separate close/open for chat?
+    // The previous UI had chat AS A SIDEBAR always visible (w-96). So we just change the CONTENT of the sidebar.
+    // Yes.
+    
     if (file.type === "file") {
       setSelectedFile(file)
       setSelectedFolder(null)
@@ -488,15 +492,7 @@ export default function ResearchCollaborationPage() {
       setSelectedFolder(folder)
       setSelectedFile(null)
       setViewMode("folder")
-      // Update chat messages for folder context
-      setChatMessages([
-        {
-          id: "folder-welcome",
-          content: `Welcome to ${folder.name}! I can help you organize research, manage collaborators, and analyze documents in this project folder.`,
-          sender: "assistant",
-          timestamp: new Date(),
-        },
-      ])
+      // Update chat messages for folder context - REMOVED as ResearchChat handles context via props
     }
   }
 
@@ -504,116 +500,12 @@ export default function ResearchCollaborationPage() {
     setSelectedFolder(null)
     setSelectedFile(null)
     setViewMode("overview")
-    setChatMessages([
-      {
-        id: "overview-welcome",
-        content: "Hello! I'm your research assistant. Select a folder or upload a paper and I can help organize your research and create summaries.",
-        sender: "assistant",
-        timestamp: new Date(),
-      },
-    ])
+    setViewMode("overview")
+    // REMOVED: setChatMessages reset
   }
 
-  const handleSendMessage = async () => {
-    if (!chatInput.trim() || isChatLoading) return
+  // REMOVED: handleSendMessage and handleGeneratePodcast as they are now internal to ResearchChat
 
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      content: chatInput,
-      sender: "user",
-      timestamp: new Date(),
-    }
-
-    setChatMessages((prev) => [...prev, userMessage])
-    setChatInput("")
-    setIsChatLoading(true)
-
-    try {
-      const response = await fetch("/api/research-chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messages: [...chatMessages, userMessage],
-          selectedFile: selectedFile,
-          model: "gpt-4o",
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to get response")
-      }
-
-      const data = await response.json()
-
-      const assistantMessage: ChatMessage = {
-        id: data.message.id,
-        content: data.message.content,
-        sender: "assistant",
-        timestamp: new Date(data.message.timestamp),
-      }
-
-      setChatMessages((prev) => [...prev, assistantMessage])
-    } catch (error) {
-      console.error("Error sending message:", error)
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        content: "I'm having trouble connecting right now. Please try again later.",
-        sender: "assistant",
-        timestamp: new Date(),
-      }
-      setChatMessages((prev) => [...prev, errorMessage])
-    } finally {
-      setIsChatLoading(false)
-    }
-  }
-
-  const handleGeneratePodcast = async () => {
-    if (!selectedFile) return
-
-    setIsGeneratingPodcast(true)
-
-    try {
-      const response = await fetch("/api/generate-podcast", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          selectedFile: selectedFile,
-          model: "gpt-4o",
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to generate podcast")
-      }
-
-      const data = await response.json()
-
-      setPodcastUrl(data.audioUrl)
-
-      const podcastMessage: ChatMessage = {
-        id: Date.now().toString(),
-        content: `I've generated a podcast explanation of "${selectedFile.name}". You can listen to it using the audio player above. Here's the script I created:\n\n${data.script}`,
-        sender: "assistant",
-        timestamp: new Date(),
-      }
-      setChatMessages((prev) => [...prev, podcastMessage])
-    } catch (error) {
-      console.error("Error generating podcast:", error)
-      const errorMessage: ChatMessage = {
-        id: Date.now().toString(),
-        content: "I encountered an error while generating the podcast. Please try again later.",
-        sender: "assistant",
-        timestamp: new Date(),
-      }
-      setChatMessages((prev) => [...prev, errorMessage])
-    } finally {
-      setIsGeneratingPodcast(false)
-    }
-  }
 
   const renderProjectTree = (items: ProjectNode[], depth = 0, parentLineInfo: boolean[] = []) => {
     return items.map((item, index) => {
@@ -704,7 +596,7 @@ export default function ResearchCollaborationPage() {
                       onClick={() => handleFileSelect(item)}
                     >
                       <div className="w-4 shrink-0" /> {/* Placeholder for arrow alignment */}
-                      <File size={16} className="text-gray-500 shrink-0" />
+                      <FileIcon size={16} className="text-gray-500 shrink-0" />
                       {renamingNodeId === item.id ? (
                         <Input
                           autoFocus
@@ -824,6 +716,23 @@ export default function ResearchCollaborationPage() {
                   <FilePlus size={16} />
                 </Button>
 
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    // Trigger new chat: reset selectedChatId to null (new chat mode)
+                    setSelectedChatId(null);
+                    // Also ensure sidebar is visible/focused if logic relies on it?
+                    // ResearchChat handles null sessionId as "New Chat"
+                    toast({ title: "New Chat", description: "Start a new research conversation." });
+                  }}
+                  title="New Chat"
+                >
+                  <MessageSquare size={16} />
+                </Button>
+
+
 
                 <div className="relative hover:cursor-pointer">
                   <Button
@@ -855,6 +764,7 @@ export default function ResearchCollaborationPage() {
             <div className="space-y-1">{renderProjectTree(projectStructure)}</div>
           </ScrollArea>
         </div>
+
 
         {/* Main Content Area */}
         <div className="flex-1 flex flex-col">
@@ -909,6 +819,7 @@ export default function ResearchCollaborationPage() {
                       <h3 className="text-lg font-semibold text-foreground flex items-center">
                         <Users size={18} className="mr-2" />
                         Collaborators ({selectedFolder.collaborators?.length || 0})
+
                       </h3>
                       <Button size="sm" variant="ghost">
                         <Plus size={16} />
@@ -917,6 +828,7 @@ export default function ResearchCollaborationPage() {
                     <div className="space-y-3">
                       {selectedFolder.collaborators?.map((collaborator) => (
                         <div key={collaborator.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+
                           <div className="flex items-center space-x-3">
                             <div className="relative">
                               {collaborator.avatar ? (
@@ -936,7 +848,7 @@ export default function ResearchCollaborationPage() {
                             </div>
                           </div>
                           {/* <Button variant="ghost" size="icon" className="h-6 w-6">
-                                    <MessageSquare size={14} className="text-muted-foreground" />
+                                    <FileIcon size={32} className="text-muted-foreground mb-2" />
                                   </Button> */}
                         </div>
                       ))}
@@ -959,7 +871,7 @@ export default function ResearchCollaborationPage() {
                     </div>
                     {/* Thumbnail Grid for Files */}
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {selectedFolder.files?.map((file) => (
+                      {selectedFolder.children?.filter(c => c.type === 'file').map((file) => (
                         <div
                           key={file.id}
                           className="group relative bg-card hover:bg-muted/50 border border-border/50 hover:border-primary/50 rounded-lg p-3 transition-all cursor-pointer flex flex-col items-center text-center gap-2"
@@ -968,7 +880,7 @@ export default function ResearchCollaborationPage() {
                           <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
                             {file.name.endsWith('.pdf') ? <FileText size={20} /> :
                               file.name.endsWith('.md') ? <StickyNote size={20} /> :
-                                <File size={20} />}
+                                <FileIcon size={20} />}
                           </div>
                           <p className="font-medium text-xs truncate w-full" title={file.name}>{file.name}</p>
                         </div>
@@ -1003,7 +915,7 @@ export default function ResearchCollaborationPage() {
                       </Button>
                     </div>
                     <div className="flex flex-wrap gap-4">
-                      {selectedFolder.collaborators.map((collab) => (
+                      {selectedFolder.collaborators?.map((collab) => (
                         <div key={collab.id} className="flex items-center space-x-3 bg-card border border-border/50 p-2 pr-4 rounded-full shadow-sm">
                           <div className="relative">
                             {collab.avatar ? (
@@ -1023,7 +935,7 @@ export default function ResearchCollaborationPage() {
                           </div>
                         </div>
                       ))}
-                      {selectedFolder.collaborators.length === 0 && (
+                      {(!selectedFolder.collaborators || selectedFolder.collaborators.length === 0) && (
                         <p className="text-sm text-muted-foreground italic">No collaborators yet.</p>
                       )}
                     </div>
@@ -1065,16 +977,16 @@ export default function ResearchCollaborationPage() {
                     </div>
 
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {selectedFolder.files.map((file) => (
+                      {selectedFolder.children?.filter(c => c.type === 'file').map((file) => (
                         <div
                           key={file.id}
                           className="group relative bg-card hover:bg-muted/50 border border-border/50 hover:border-primary/50 rounded-xl p-4 transition-all cursor-pointer flex flex-col items-center text-center gap-3 aspect-square justify-center"
                           onClick={() => handleFileSelect(file)}
                         >
                           <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                            {file.name.endsWith('.pdf') ? <FileText size={24} /> :
-                              file.name.endsWith('.md') ? <StickyNote size={24} /> :
-                                <File size={24} />}
+                              {file.name.endsWith('.pdf') ? <FileText size={48} className="text-primary opacity-80" /> :
+                                file.name.endsWith('.md') ? <StickyNote size={48} className="text-yellow-500 opacity-80" /> :
+                                  <FileIcon size={48} className="text-blue-500 opacity-80" />}
                           </div>
                           <div className="space-y-1 w-full">
                             <p className="font-medium text-sm truncate w-full" title={file.name}>{file.name}</p>
@@ -1219,138 +1131,14 @@ export default function ResearchCollaborationPage() {
 
         {/* End of Main Content Area, Start of AI Sidebar (if needed) */}
 
-        {/* AI Assistant Sidebar */}
-        <div className="w-96 border-l border-border/50 glass-card flex flex-col">
-          {/* Header */}
-          <div className="p-4 border-b border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center">
-                  <Sparkles size={16} className="text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-foreground">Race Chat</h3>
-                  <p className="text-xs text-muted-foreground">AI Research Assistant</p>
-                </div>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleGeneratePodcast}
-                disabled={!selectedFile || isGeneratingPodcast}
-              >
-                {isGeneratingPodcast ? (
-                  <>
-                    <Loader2 size={14} className="mr-1 animate-spin" />
-                    Generating...
-                  </>
-                ) : (
-                  "Generate Podcast"
-                )}
-              </Button>
-            </div>
-
-            {/* Podcast Player */}
-            {podcastUrl && (
-              <div className="mt-4 p-3 bg-muted/50 rounded-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium">Podcast Explanation</span>
-                  <Button size="sm" variant="ghost" onClick={() => setIsPlaying(!isPlaying)}>
-                    {isPlaying ? <Pause size={16} /> : <Play size={16} />}
-                  </Button>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="flex-1 h-1 bg-muted rounded-full">
-                    <div className="h-1 bg-primary rounded-full w-1/3"></div>
-                  </div>
-                  <Volume2 size={14} className="text-muted-foreground" />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Chat Messages */}
-          <ScrollArea className="flex-1 p-4">
-            <div className="space-y-4">
-              {chatMessages.map((message) => (
-                <div key={message.id} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
-                  <div
-                    className={`max-w-[80%] p-3 rounded-lg ${message.sender === "user"
-                      ? "bg-gradient-to-r from-primary to-primary/90 text-primary-foreground shadow-lg"
-                      : "glass-card border border-border/50 text-foreground"
-                      }`}
-                  >
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                    <p
-                      className={`text-xs mt-1 ${message.sender === "user" ? "text-primary-foreground/70" : "text-muted-foreground"}`}
-                    >
-                      {message.timestamp.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                    </p>
-                  </div>
-                </div>
-              ))}
-
-              {isChatLoading && (
-                <div className="flex justify-start">
-                  <div className="bg-muted p-3 rounded-lg">
-                    <div className="flex items-center space-x-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                      <span className="text-sm">Analyzing...</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-
-          {/* Chat Input */}
-          <div className="p-4 border-t border-border">
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">NEW TOPIC</p>
-              <div className="flex items-center space-x-2">
-                <div className="flex-1 relative">
-                  <Input
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Let's research together..."
-                    className="pr-10 bg-muted/40 border-none focus-visible:ring-1 focus-visible:ring-primary/20 transition-all duration-200"
-                    disabled={isChatLoading}
-                    onKeyPress={(e) => {
-                      if (e.key === "Enter") {
-                        handleSendMessage()
-                      }
-                    }}
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2"
-                    disabled={isChatLoading}
-                  >
-                    <Mic size={14} />
-                  </Button>
-                </div>
-                <Button
-                  onClick={handleSendMessage}
-                  size="sm"
-                  className="btn-primary shadow-lg hover:shadow-xl transition-all duration-200"
-                  disabled={isChatLoading || !chatInput.trim()}
-                >
-                  {isChatLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                </Button>
-              </div>
-              <div className="flex space-x-2">
-                <Button variant="outline" size="sm" className="flex-1 bg-transparent" disabled={isChatLoading}>
-                  <BookOpen size={14} className="mr-1" />
-                  Summarize
-                </Button>
-                <Button variant="outline" size="sm" className="flex-1 bg-transparent" disabled={isChatLoading}>
-                  <MessageSquare size={14} className="mr-1" />
-                  Explain
-                </Button>
-              </div>
-            </div>
-          </div>
+        {/* AI Assistant Sidebar - Replaced with ResearchChat */}
+        {/* AI Assistant Sidebar - Replaced with ResearchChat */}
+        <div className="w-96 border-l border-border/50 glass-card flex flex-col h-full bg-background/50">
+            <ResearchChat 
+                sessionId={selectedChatId || undefined} 
+                projectId={selectedFolder?.id || projects[0]?.id} // Pass current project context
+                onNewChat={() => setSelectedChatId(null)} // Reset to create new
+            />
         </div>
       </div>
     </div>

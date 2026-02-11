@@ -45,7 +45,7 @@ export default function SimplifiedOnboardingContainer({
   };
 
   return (
-    <div className="min-h-screen">
+    <div className="w-full">
       {currentStep === 1 && (
         <EmailVerification
           email={userData.email || ""}

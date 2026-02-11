@@ -60,17 +60,46 @@ import {
 
 import { useSettings } from "@/app/context/SettingsContext"
 import { useUser } from "@/app/context/UserContext"
+import { useTheme } from "next-themes"
+import { useToast } from "@/components/ui/use-toast"
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("account")
   
   // Use Context
+  // Use Context
   const { settings, updateSettings } = useSettings();
   const { user, updateUser } = useUser();
+  const { setTheme, theme } = useTheme();
+  const { toast } = useToast();
   
   // Destructure for easier usage map to existing code references
   const { notifications, privacy, ai, interface: interfaceSettings } = settings;
-  const darkMode = interfaceSettings.theme === 'dark'; // Mock for existing var, or just use context logic below
+
+  const handleSaveProfile = () => {
+    // In a real app, this would be an API call
+    toast({
+      title: "Settings saved",
+      description: "Your profile information has been updated successfully.",
+    })
+  }
+
+  const handleThemeChange = (newTheme: string) => {
+    setTheme(newTheme);
+    toast({
+      title: "Theme updated",
+      description: `Appearance set to ${newTheme} mode.`,
+    })
+  }
+
+  const handleConnectService = (serviceName: string, connected: boolean) => {
+    toast({
+      title: connected ? "Service disconnected" : "Service connected",
+      description: `${serviceName} has been ${connected ? "disconnected" : "connected successfully"}.`,
+      variant: connected ? "default" : "default" // could be destructive for disconnect
+    })
+    // Here we would ideally update some local state to reflect the toggle
+  }
 
   const settingsCategories = [
     {
@@ -327,10 +356,7 @@ export default function SettingsPage() {
 
 
                       <div className="flex justify-end pt-4">
-                        <Button className="btn-primary" onClick={() => {
-                            // In a real app, this might trigger a backend sync, but for context state it updates immediately.
-                            // We can add a toast here for visual feedback.
-                        }}>
+                        <Button className="btn-primary" onClick={handleSaveProfile}>
                           <Save className="h-4 w-4 mr-2" />
                           Save Changes
                         </Button>
@@ -455,26 +481,35 @@ export default function SettingsPage() {
                       <div>
                         <Label>Theme</Label>
                         <div className="grid grid-cols-3 gap-4 mt-3">
-                          <div className="p-4 border-2 border-primary rounded-lg cursor-pointer">
+                          <div 
+                              className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${theme === 'dark' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
+                              onClick={() => handleThemeChange('dark')}
+                          >
                             <div className="flex items-center gap-2 mb-2">
                               <Moon className="h-4 w-4" />
                               <span className="font-medium">Dark</span>
                             </div>
-                            <div className="h-8 bg-slate-900 rounded"></div>
+                            <div className="h-8 bg-slate-950 rounded border border-white/10"></div>
                           </div>
-                          <div className="p-4 border border-border rounded-lg cursor-pointer hover:border-primary">
+                          <div 
+                              className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${theme === 'light' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
+                              onClick={() => handleThemeChange('light')}
+                          >
                             <div className="flex items-center gap-2 mb-2">
                               <Sun className="h-4 w-4" />
                               <span className="font-medium">Light</span>
                             </div>
-                            <div className="h-8 bg-white border rounded"></div>
+                            <div className="h-8 bg-white border border-slate-200 rounded"></div>
                           </div>
-                          <div className="p-4 border border-border rounded-lg cursor-pointer hover:border-primary">
+                          <div 
+                              className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${theme === 'system' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'}`}
+                              onClick={() => handleThemeChange('system')}
+                          >
                             <div className="flex items-center gap-2 mb-2">
                               <Monitor className="h-4 w-4" />
                               <span className="font-medium">System</span>
                             </div>
-                            <div className="h-8 bg-gradient-to-r from-slate-900 to-white rounded"></div>
+                            <div className="h-8 bg-gradient-to-r from-slate-900 to-white rounded border border-border"></div>
                           </div>
                         </div>
                       </div>
@@ -801,7 +836,10 @@ export default function SettingsPage() {
                                 Connected
                               </Badge>
                             )}
-                            <button className={service.connected ? "btn-secondary" : "btn-primary"}>
+                            <button 
+                                className={service.connected ? "btn-secondary text-xs px-3 py-1" : "btn-primary text-xs px-3 py-1"}
+                                onClick={() => handleConnectService(service.name, service.connected)}
+                            >
                               {service.connected ? "Disconnect" : "Connect"}
                             </button>
                           </div>

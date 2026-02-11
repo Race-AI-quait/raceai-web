@@ -1,5 +1,6 @@
 "use client"
-import { useState } from "react"
+import { useState, useRef } from "react"
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -113,6 +114,7 @@ const findNodeInTree = (node: ProjectNode, targetId: string): boolean => {
 };
 
 export default function ResearchCollaborationPage() {
+  const router = useRouter();
 
   const { toast } = useToast()
   const [viewMode, setViewMode] = useState<"overview" | "folder" | "file">("overview")
@@ -144,6 +146,32 @@ export default function ResearchCollaborationPage() {
   const [selectedFolder, setSelectedFolder] = useState<ProjectNode | null>(null)
   const [selectedNode, setSelectedNode] = useState<ProjectNode | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+
+  const [isRecording, setIsRecording] = useState(false);
+
+  const handleVoiceInput = async () => {
+        if (!isRecording) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: true,
+                });
+                setIsRecording(true);
+
+                // Mock recording - in real app, hook to SpeechRecognition
+                setTimeout(() => {
+                    setIsRecording(false);
+                    stream.getTracks().forEach((track) => track.stop());
+                    setChatInput(prev => prev + " [Voice Input Test]"); 
+                    toast({ title: "Voice Input", description: "Added voice text to chat." });
+                }, 2000);
+            } catch (error) {
+                console.error("Error accessing microphone:", error);
+                toast({ title: "Error", description: "Microphone access denied.", variant: "destructive" });
+            }
+        } else {
+            setIsRecording(false);
+        }
+  };
 
   // Filter logic
   const projectStructure: ProjectNode[] = projects.map(p => {
@@ -498,12 +526,10 @@ export default function ResearchCollaborationPage() {
 
   const handleFileSelect = (file: ProjectNode) => {
     if (file.id.startsWith("chat-")) {
-      // It's a chat node
+      // It's a chat node - Navigate to Jarvis with session ID
+      const sessionId = file.id.replace("chat-node-", "").replace("chats-", ""); // Handle variations
       toast({ title: "Opening Chat", description: `Loading chat: ${file.name}` });
-      // In future: setChatMessages(...) to load this specific chat
-      // For now, allow regular file selection logic to proceed or return? 
-      // If we treat it as a file, it might try to open PDFViewer which will fail for non-files.
-      // So we should handle it here.
+      router.push(`/jarvis?sessionId=${sessionId}`);
       return;
     }
 
@@ -947,6 +973,25 @@ export default function ResearchCollaborationPage() {
                   </Button>
                </div>
             </div>
+            
+            {/* Podcast Player Alert */}
+            {podcastUrl && (
+                <div className="mx-6 mt-4 p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 flex items-center justify-between animate-in slide-in-from-top-2">
+                    <div className="flex items-center gap-4">
+                        <div className="h-10 w-10 rounded-full bg-purple-500 flex items-center justify-center text-white shrink-0 animate-pulse">
+                            <Volume2 size={20} />
+                        </div>
+                        <div>
+                             <h4 className="font-semibold text-sm">Now Playing: Podcast Summary</h4>
+                             <p className="text-xs text-muted-foreground">Generated analysis of "{selectedFile?.name}"</p>
+                        </div>
+                    </div>
+                    <audio controls className="h-8 max-w-[300px]" src={podcastUrl} autoPlay>
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
+            )}
+
 
             {/* Content View Area */}
             <div className="flex-1 overflow-auto p-8 relative">

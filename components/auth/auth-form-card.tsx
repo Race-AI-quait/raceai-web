@@ -148,9 +148,19 @@ export default function AuthFormCard({ onAuthSuccess }: AuthFormCardProps) {
             }
         } catch (error: any) {
             console.error("Auth Error:", error)
+            
+            let errorMessage = error.message || "An unexpected error occurred";
+            
+            // Improve Supabase error messages
+            if (errorMessage.includes("Invalid login credentials")) {
+                errorMessage = "Incorrect email or password.";
+            } else if (errorMessage.includes("Email not confirmed")) {
+                 errorMessage = "Please verify your email address before signing in.";
+            }
+
             setFormErrors((prev) => ({
                 ...prev,
-                submit: error.message || "An unexpected error occurred",
+                submit: errorMessage,
             }))
         } finally {
             setIsLoading(false)

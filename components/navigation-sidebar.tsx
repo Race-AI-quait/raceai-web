@@ -101,7 +101,7 @@ export default function NavigationSidebar() {
   }
 
   return (
-    <div className="w-16 glass-card border-r border-border/50 flex flex-col items-center pt-2 pb-4 relative z-50">
+    <div className="w-16 glass-card flex flex-col items-center pt-2 pb-4 relative z-50">
       {/* Logo */}
       <div className="mb-8 cursor-pointer" onClick={handleLogoClick}>
         <ModernLogo size={50} showText={false} />
@@ -120,33 +120,16 @@ export default function NavigationSidebar() {
               size="sm"
               onClick={() => router.push(item.path)}
               className={`w-10 h-10 p-0 rounded-xl transition-all duration-200 group relative ${isActive
-                ? "active-glow text-blue-700 dark:text-blue-400"
+                ? "active-nav-minimal text-blue-600 dark:text-blue-400"
                 : "bg-transparent text-muted-foreground hover:bg-gray-100 dark:hover:bg-white/5 hover:text-foreground"
                 }`}
               title={item.label}
             >
-              {isActive && (
-                <motion.div
-                  layoutId="active-nav-glow"
-                  initial={{ opacity: 0.5 }}
-                  animate={{ 
-                    backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
-                  }}
-                  transition={{ 
-                    duration: 5, 
-                    repeat: Infinity, 
-                    ease: "easeInOut" 
-                  }}
-                  style={{
-                    backgroundSize: "200% 200%",
-                    backgroundImage: "linear-gradient(to left, rgba(59,130,246,0.1), rgba(168,85,247,0.1), rgba(59,130,246,0.1))"
-                  }}
-                  className="absolute inset-0 rounded-xl border border-blue-500/30 dark:border-blue-400/30"
-                />
-              )}
+              {// Removed motion.div glow to match minimal style
+              }
               <Icon
                 size={20}
-                className={`relative z-10 ${isActive ? "text-blue-700 dark:text-blue-400" : "currentColor"}`}
+                className={`relative z-10 ${isActive ? "text-blue-600 dark:text-blue-400" : "currentColor"}`}
                 strokeWidth={isActive ? 2.5 : 2}
               />
             </Button>
@@ -170,34 +153,16 @@ export default function NavigationSidebar() {
               size="sm"
               onClick={() => router.push(item.path)}
               className={`w-10 h-10 p-0 rounded-xl transition-all duration-200 group relative ${isActive
-                ? "active-glow text-blue-700 dark:text-blue-400"
+                ? "active-nav-minimal text-blue-600 dark:text-blue-400"
                 : "bg-transparent text-muted-foreground hover:bg-gray-100 dark:hover:bg-white/5 hover:text-foreground"
                 }`}
               title={item.label}
             >
-              {isActive && (
-                <motion.div
-                  layoutId="active-nav-glow-secondary"
-                  className="absolute inset-0 rounded-xl bg-gradient-to-tr from-blue-500/10 to-purple-500/10 dark:from-blue-400/20 dark:to-purple-400/20 border border-blue-500/30 dark:border-blue-400/30"
-                  initial={{ opacity: 0.5 }}
-                  animate={{ 
-                    opacity: [0.5, 1, 0.5],
-                    boxShadow: [
-                      "0 0 0px rgba(59,130,246,0)", 
-                      "0 0 8px rgba(59,130,246,0.3)", 
-                      "0 0 0px rgba(59,130,246,0)"
-                    ]
-                  }}
-                  transition={{ 
-                    duration: 3, 
-                    repeat: Infinity, 
-                    ease: "easeInOut" 
-                  }}
-                />
-              )}
+              { // Removed motion.div glow to match minimal style 
+              }
               <Icon
                 size={20}
-                className={`relative z-10 ${isActive ? "text-blue-700 dark:text-blue-400" : "currentColor"}`}
+                className={`relative z-10 ${isActive ? "text-blue-600 dark:text-blue-400" : "currentColor"}`}
                 strokeWidth={isActive ? 2.5 : 2}
               />
             </Button>

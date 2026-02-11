@@ -220,10 +220,10 @@ export default function Whiteboard({ onClose, onAttach }: WhiteboardProps) {
             <div className="bg-background rounded-2xl shadow-2xl flex flex-col overflow-hidden w-full h-full max-w-[1400px] max-h-[900px] border border-border ring-1 ring-white/10">
                 
                 {/* Header / Toolbar */}
-                <div className="flex flex-col md:flex-row items-center justify-between p-4 border-b border-border bg-background gap-4">
+                <div className="flex flex-col md:flex-row items-center justify-between p-4 border-b border-border bg-white dark:bg-slate-950 gap-4">
                     <div className="flex items-center gap-4">
                         <div className="p-2 bg-primary/10 rounded-lg">
-                             <h3 className="font-semibold text-lg text-primary tracking-tight">Whiteboard</h3>
+                             <h3 className="font-semibold text-lg text-black dark:text-white tracking-tight">Whiteboard</h3>
                         </div>
                    
                         

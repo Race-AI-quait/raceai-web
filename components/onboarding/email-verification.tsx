@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { MessageCircle, Sparkles, Terminal, ShieldCheck } from "lucide-react"
+import { Shield, ArrowRight, RefreshCw, CheckCircle2 } from "lucide-react"
 import { motion } from "framer-motion"
+import { supabase } from "@/lib/supabase"
 
 interface EmailVerificationProps {
   email: string
@@ -17,47 +18,43 @@ export default function EmailVerification({ email, onNext, onBack }: EmailVerifi
   const [resendCountdown, setResendCountdown] = useState(60)
   const [error, setError] = useState("")
   const [isVerifying, setIsVerifying] = useState(false)
-  const [targetCode, setTargetCode] = useState("")
+  const [isResending, setIsResending] = useState(false)
   
-  // Typing effect state
-  const [headerText, setHeaderText] = useState("")
-  const fullText = "Security Protocol: Identity Verification"
-
   useEffect(() => {
-    let i = 0
-    const interval = setInterval(() => {
-      setHeaderText(fullText.slice(0, i))
-      i++
-      if (i > fullText.length) clearInterval(interval)
-    }, 30)
-    return () => clearInterval(interval)
+    // Start countdown
+    const timer = setInterval(() => {
+        setResendCountdown((prev) => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
+    return () => clearInterval(timer)
   }, [])
-  
-  useEffect(() => {
-    if (email) sendVerificationCode(email);
-  }, [email])
 
-  const sendVerificationCode = async (toEmail: string) => {
-      const newCode = Math.floor(100000 + Math.random() * 900000).toString();
-      setTargetCode(newCode);
-      try {
-          // Dev only simulation
-          console.log("Code sent (dev mode):", newCode);
-      } catch (err) {
-          setError("Failed to send verification code.");
-      }
-  }
+  const verifyCode = async (codeString: string) => {
+    setIsVerifying(true)
+    setError("")
 
-  const validateCode = (codeString: string) => {
-    if (codeString.length !== 6) {
-      setError("Please enter all 6 digits")
-      return false
+    try {
+        const { data, error } = await supabase.auth.verifyOtp({
+            email,
+            token: codeString,
+            type: 'signup'
+        })
+
+        if (error) throw error
+
+        // If successful
+        if (data.session) {
+            onNext(codeString)
+        } else {
+            // Sometimes detailed error isn't returned for wrong code
+            setError("Invalid code. Please try again.")
+        }
+
+    } catch (err: any) {
+        console.error("Verification Error:", err)
+        setError(err.message || "Verification failed. Check the code and try again.")
+    } finally {
+        setIsVerifying(false)
     }
-    if (codeString !== targetCode) {
-        setError("Invalid code. Please try again.")
-        return false
-    }
-    return true
   }
 
   const handleCodeChange = (index: number, value: string) => {
@@ -76,13 +73,7 @@ export default function EmailVerification({ email, onNext, onBack }: EmailVerifi
 
     if (newCode.every((digit) => digit) && newCode.join("").length === 6) {
       const codeString = newCode.join("")
-      if (validateCode(codeString)) {
-        setIsVerifying(true)
-        setTimeout(() => {
-          setIsVerifying(false)
-          onNext(codeString)
-        }, 500)
-      }
+      verifyCode(codeString)
     }
   }
 
@@ -95,75 +86,58 @@ export default function EmailVerification({ email, onNext, onBack }: EmailVerifi
 
   const handleManualVerify = () => {
     const codeString = code.join("")
-    if (validateCode(codeString)) {
-      setIsVerifying(true)
-      setTimeout(() => {
-        setIsVerifying(false)
-        onNext(codeString)
-      }, 500)
+    verifyCode(codeString)
+  }
+
+  const handleResend = async () => {
+    if (resendCountdown > 0) return
+    setIsResending(true)
+    setError("")
+    
+    try {
+        const { error } = await supabase.auth.resend({
+            type: 'signup',
+            email
+        })
+        
+        if (error) throw error
+        
+        setResendCountdown(60)
+        setCode(["", "", "", "", "", ""])
+        setTimeout(() => document.getElementById("code-0")?.focus(), 100)
+        
+    } catch (err: any) {
+        console.error("Resend Error:", err)
+        setError(err.message || "Failed to resend code.")
+    } finally {
+        setIsResending(false)
     }
   }
 
-  const handleResend = () => {
-    setResendCountdown(60)
-    setError("")
-    setCode(["", "", "", "", "", ""])
-    if (email) sendVerificationCode(email)
-    setTimeout(() => document.getElementById("code-0")?.focus(), 100)
-  }
-
   return (
-    <div className="relative w-full">
-      {/* Glass Panel Container */}
-      <div className="bg-background/40 dark:bg-black/40 backdrop-blur-xl border border-white/10 dark:border-white/5 rounded-3xl shadow-2xl overflow-hidden min-h-[500px]">
+    <div className="relative w-full max-w-md mx-auto">
+      <div className="bg-background border border-border rounded-xl shadow-lg overflow-hidden">
         
-         {/* Status Bar */}
-        <div className="bg-white/5 border-b border-white/5 p-4 flex items-center justify-between">
-             <div className="flex items-center gap-3">
-                <div className="w-3 h-3 rounded-full bg-red-500/80" />
-                <div className="w-3 h-3 rounded-full bg-yellow-500/80" />
-                <div className="w-3 h-3 rounded-full bg-green-500/80" />
-            </div>
-            <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground uppercase tracking-widest">
-                <ShieldCheck size={12} />
-                <span>Verification Pending</span>
-            </div>
+        {/* Clean Header */}
+        <div className="p-8 pb-6 text-center space-y-4">
+             <div className="mx-auto w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                <Shield className="w-6 h-6 text-primary" />
+             </div>
+             
+             <div>
+                <h2 className="text-xl font-semibold text-foreground tracking-tight">Hey! Verify your email</h2>
+                <p className="text-sm text-muted-foreground mt-2">
+                    Enter the secure code sent to <br/>
+                    <span className="font-medium text-foreground">{email}</span>
+                </p>
+             </div>
         </div>
 
-        <div className="p-8 lg:p-10 space-y-8">
-            {/* Jarvis Dialogue */}
-            <div className="flex gap-6 items-start">
-                 <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary to-cyan-400 p-[2px] shrink-0 shadow-lg shadow-primary/20">
-                     <div className="w-full h-full rounded-full bg-black/80 flex items-center justify-center">
-                         <Sparkles className="w-6 h-6 text-primary animate-pulse" />
-                     </div>
-                 </div>
-
-                 <div className="space-y-2 flex-1">
-                     <div className="bg-primary/10 border border-primary/20 rounded-2xl rounded-tl-sm p-4 inline-block">
-                        <p className="text-sm font-mono text-primary mb-1">JARVIS // SECURITY GATE</p>
-                        <h2 className="text-xl font-medium text-foreground min-h-[1.75rem]">
-                            {headerText}<span className="animate-pulse">_</span>
-                        </h2>
-                     </div>
-                     <p className="text-sm text-muted-foreground pl-1">
-                        A 6-digit confirmation key has been transmitted to <span className="text-foreground font-mono bg-white/5 px-1 rounded">{email || "your device"}</span>.
-                     </p>
-                 </div>
-            </div>
-
-            {/* Input Module */}
-            <motion.div 
-               initial={{ opacity: 0, y: 20 }}
-               animate={{ opacity: 1, y: 0 }}
-               transition={{ delay: 0.3 }}
-               className="space-y-6"
-            >
-                <div>
-                   <label className="text-xs font-mono font-bold text-muted-foreground uppercase tracking-wider mb-4 block">Input Access Key</label>
-                   <div className="flex justify-center space-x-3">
-                    {code.map((digit, index) => (
-                        <Input
+        {/* Input Area */}
+        <div className="px-8 pb-8 space-y-6">
+            <div className="flex justify-center gap-2">
+                {code.map((digit, index) => (
+                    <Input
                         key={index}
                         id={`code-${index}`}
                         type="text"
@@ -172,46 +146,61 @@ export default function EmailVerification({ email, onNext, onBack }: EmailVerifi
                         value={digit}
                         onChange={(e) => handleCodeChange(index, e.target.value)}
                         onKeyDown={(e) => handleKeyDown(index, e)}
-                        className={`w-12 h-14 text-center text-xl font-mono bg-background/50 border-white/10 focus:border-primary focus:ring-primary/20 transition-all ${error ? "border-red-500 bg-red-500/5 text-red-500" : ""}`}
+                        className={`w-10 h-12 sm:w-12 sm:h-14 text-center text-lg font-mono bg-muted/30 border-input focus:border-primary focus:ring-1 focus:ring-primary transition-all ${error ? "border-red-500 focus:border-red-500" : ""}`}
                         disabled={isVerifying}
-                        />
-                    ))}
-                    </div>
-                </div>
+                    />
+                ))}
+            </div>
 
-                {error && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
-                        <p className="text-xs text-red-400 font-mono flex items-center justify-center gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                            {error}
-                        </p>
-                    </motion.div>
+            {error && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center">
+                    <p className="text-xs text-red-500 font-medium flex items-center justify-center gap-2">
+                        <span>•</span> {error}
+                    </p>
+                </motion.div>
+            )}
+
+            <Button 
+                onClick={handleManualVerify}
+                disabled={code.some((digit) => !digit) || isVerifying}
+                className="w-full h-11 text-sm font-medium"
+            >
+                {isVerifying ? (
+                    <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Verifying...
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-2">
+                        Verify Access <ArrowRight className="w-4 h-4" />
+                    </div>
                 )}
-            </motion.div>
-            
-            <div className="pt-6 border-t border-white/5 flex flex-col items-center gap-4">
-                 <div className="flex gap-4 w-full">
-                    <Button variant="ghost" onClick={onBack} className="flex-1 text-muted-foreground hover:text-foreground">
-                        Abort
-                    </Button>
-                    <Button 
-                        onClick={handleManualVerify}
-                        disabled={code.some((digit) => !digit) || isVerifying}
-                        className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
-                    >
-                        {isVerifying ? "Authenticating..." : "Confirm Access"}
-                    </Button>
-                 </div>
-                 
+            </Button>
+
+            <div className="text-center">
                  {resendCountdown > 0 ? (
-                    <p className="text-xs text-muted-foreground font-mono">Resend uplink available in {resendCountdown}s</p>
+                    <p className="text-xs text-muted-foreground">
+                        Resend code in <span className="font-mono">{resendCountdown}s</span>
+                    </p>
                  ) : (
-                    <button onClick={handleResend} className="text-xs text-primary hover:underline font-mono" disabled={isVerifying}>
-                        Retransmit Signal
+                    <button 
+                        onClick={handleResend} 
+                        disabled={isResending}
+                        className="text-xs text-primary hover:underline inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                    >
+                        {isResending && <RefreshCw className="w-3 h-3 animate-spin" />}
+                        Resend Verification Code
                     </button>
                  )}
             </div>
+            
+            <div className="pt-4 border-t border-border flex justify-center">
+                 <button onClick={onBack} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                   ←Back
+                 </button>
+            </div>
         </div>
+
       </div>
     </div>
   )

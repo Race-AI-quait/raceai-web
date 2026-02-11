@@ -38,14 +38,50 @@ export default function OnboardingPage() {
     updateUser(updatedUser);
 
     try {
-      // Simulate or call backend signup if needed
-      // const endpoint = `${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/signup`;
-      // await fetch(...) 
-      // For now, assume success and redirect:
+      // Call Backend to create User record
+      const endpoint = `${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/signup`;
+      
+      const payload = {
+        email: completedUserData.email,
+        name: `${completedUserData.firstName || ''} ${completedUserData.lastName || ''}`.trim(),
+        firstName: completedUserData.firstName,
+        lastName: completedUserData.lastName,
+        preferences: {
+            interests: completedUserData.interests,
+            role: completedUserData.role,
+            organization: completedUserData.organization
+        },
+        // Optional: map other fields if they exist in UserData
+      };
+
+      console.log("Sending signup payload:", payload);
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        // If user already exists (409), we can treat it as success (they just onboarded again?)
+        // or just log it. For now, let's allow proceeding if it's 409 or 201.
+        if (res.status === 409) {
+            console.warn("User already exists in backend, proceeding...");
+        } else {
+            throw new Error(errData.message || "Backend signup failed");
+        }
+      }
+
+      const data = await res.json();
+      console.log("Backend response:", data);
+
       router.push("/jarvis");
     } catch (err: any) {
       console.error("Signup failed:", err);
-      setError("Signup failed. Please try again.");
+      setError(err.message || "Signup failed. Please try again.");
     }
   };
 
@@ -61,22 +97,7 @@ export default function OnboardingPage() {
         <SimpleThemeToggle />
       </div>
 
-      <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 min-h-screen">
-         {/* Left Column: 3D Tesseract */}
-         <div className="relative hidden lg:flex items-center justify-center p-12">
-            {/* Tesseract Container - constrained */}
-            <div className="w-full h-full max-w-lg max-h-[600px] relative">
-               <Tesseract3D />
-               <div className="absolute -bottom-12 left-0 right-0 text-center">
-                  <p className="text-muted-foreground/50 font-mono text-xs tracking-[0.2em] uppercase animate-pulse">
-                     Initializing Neural Interface
-                  </p>
-               </div>
-            </div>
-         </div>
-
-         {/* Right Column: Jarvis "Classy" Dialogue */}
-         <div className="flex items-center justify-center p-6 lg:p-12">
+      <div className="relative z-10 min-h-screen flex items-center justify-center p-6 lg:p-12">
             <div className="w-full max-w-xl">
                {userData ? (
                  <SimplifiedOnboardingContainer
@@ -89,11 +110,10 @@ export default function OnboardingPage() {
                      <div className="w-8 h-8 relative">
                         <div className="absolute inset-0 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
                      </div>
-                     <p className="text-primary font-mono text-sm">Authenticating Protocol...</p>
+                     <p className="text-primary font-mono text-sm">Authenticating...</p>
                   </div>
                )}
             </div>
-         </div>
       </div>
     </div>
   );

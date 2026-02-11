@@ -19,6 +19,7 @@ export interface User {
   lastName?: string;
   fullName?: string;
   role?: string;
+  organization?: string;
   institution?: string;
   department?: string;
   bio?: string;

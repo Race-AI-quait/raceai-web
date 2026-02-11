@@ -11,8 +11,9 @@ export default function CustomCursor() {
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
 
-  // Smooth physics for the cursor itself
-  const smoothOptions = { damping: 30, stiffness: 250, mass: 0.6 }
+  // Smooth physics for the cursor itself - Optimized for minimal lag
+  // Mass: 0.1 (very light), Stiffness: 800 (very snappy), Damping: 35 (no bounce)
+  const smoothOptions = { damping: 35, stiffness: 800, mass: 0.1 }
   const x = useSpring(mouseX, smoothOptions)
   const y = useSpring(mouseY, smoothOptions)
 
@@ -27,19 +28,23 @@ export default function CustomCursor() {
 
     const manageMouseDown = () => setIsClicking(true)
     const manageMouseUp = () => setIsClicking(false)
+    const manageMouseLeave = () => setIsVisible(false)
+    const manageMouseEnter = () => setIsVisible(true)
 
     window.addEventListener("mousemove", manageMouseMove)
     window.addEventListener("mousedown", manageMouseDown)
     window.addEventListener("mouseup", manageMouseUp)
+    document.addEventListener("mouseleave", manageMouseLeave)
+    document.addEventListener("mouseenter", manageMouseEnter)
 
     return () => {
       window.removeEventListener("mousemove", manageMouseMove)
       window.removeEventListener("mousedown", manageMouseDown)
       window.removeEventListener("mouseup", manageMouseUp)
+      document.removeEventListener("mouseleave", manageMouseLeave)
+      document.removeEventListener("mouseenter", manageMouseEnter)
     }
   }, [mouseX, mouseY, isVisible])
-
-  if (!isVisible) return null
 
   // Circular Ring Cursor (Minimalist)
   const size = 24 // Significantly smaller
@@ -49,13 +54,15 @@ export default function CustomCursor() {
       style={{
         x,
         y,
+        opacity: isVisible ? 1 : 0, // Toggle opacity instead of unmounting
         position: "fixed",
         top: 0,
         left: 0,
         zIndex: 9999999, // Ensure it's above everything including Modals
         pointerEvents: "none",
+        willChange: "transform", // Hardware acceleration hint
       }}
-      className="z-[9999999]"
+      className="z-[9999999] transition-opacity duration-150 ease-out" // Add smooth fade
     >
       <motion.div 
         className="relative -translate-x-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none"

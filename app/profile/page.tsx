@@ -28,6 +28,7 @@ import {
 import NavigationSidebar from "@/components/navigation-sidebar"
 import ModernLogo from "@/components/modern-logo"
 import AnimatedTechBackground from "@/components/animated-tech-background"
+import { useToast } from "@/components/ui/use-toast"
 
 import { User, useUser } from "../context/UserContext";
 
@@ -128,6 +129,17 @@ export default function ProfilePage() {
   console.log("Inside profile page")
   console.log(user);
 
+  // No need for separate profileData state really if we sync directly with user context? 
+  // But let's keep it for controlled inputs if needed, or just derive from user.
+  // Actually, syncing back and forth can be tricky.
+  // Let's rely on user context as source of truth if possible, or keep local state and sync on change.
+  // Given current setup, we have local profileData initialized from user.
+  // We should update User context on every change.
+
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+
+  // Initialize from user context
   const [profileData, setProfileData] = useState({
     fullName: "",
     email: "",
@@ -146,15 +158,13 @@ export default function ProfilePage() {
     publications: "",
     citations: "",
     hIndex: "",
-    currentProjects: [] as { name: string; status: string }[],
+    currentProjects: [] as { name: string; status: "Active" | "Planning" | "Completed" }[],
   });
 
   useEffect(() => {
     if (user) {
-      // Map context user data into profile fields
-      setProfileData((prev) => ({
-        ...prev,
-        fullName: user.firstName ||"" + user.lastName || "" || "",
+      setProfileData({
+        fullName: (user.firstName && user.lastName) ? `${user.firstName} ${user.lastName}` : user.firstName || "User Name",
         email: user.email || "",
         institution: user.institution || "",
         department: user.department || "",
@@ -168,16 +178,54 @@ export default function ProfilePage() {
         linkedin: user.linkedin || "",
         orcid: user.orcid || "",
         researchInterests: user.researchInterests || [],
-        publications: user.publications || "",
-        citations: user.citations || "",
-        hIndex: user.hIndex || "",
-        currentProjects: user.currentProjects || [],
-      }));
+        publications: user.publications || "12",
+        citations: user.citations || "450",
+        hIndex: user.hIndex || "8",
+        currentProjects: user.currentProjects || [
+             { name: "Neural Architecture Search", status: "Active" },
+             { name: "Quantum ML Hybrid", status: "Planning" }
+        ],
+      });
     }
   }, [user]);
 
   const updateField = (field: string) => (value: string) => {
-    setProfileData({ ...profileData, [field]: value })
+    // Optimistic update
+    setProfileData(prev => ({ ...prev, [field]: value }));
+    
+    // Update context
+    // We need to map 'fullName' back to firstName/lastName if needed, but UserContext might not have fullName.
+    // User type usually has firstName, lastName.
+    let updates: Partial<User> = {};
+    if (field === 'fullName') {
+        const [first, ...rest] = value.split(' ');
+        updates = { firstName: first, lastName: rest.join(' ') };
+    } else {
+        updates = { [field]: value };
+    }
+    
+    updateUser(updates);
+    
+    toast({
+        title: "Profile updated",
+        description: `${field} saved successfully.`,
+    });
+  }
+
+
+
+  const handleAddProject = () => {
+      // Mock adding a project
+      const newProject = { name: "New Research Project", status: "Planning" as const };
+      const updatedProjects = [...profileData.currentProjects, newProject];
+      
+      setProfileData(prev => ({ ...prev, currentProjects: updatedProjects }));
+      updateUser({ currentProjects: updatedProjects });
+      
+      toast({
+          title: "Project added",
+          description: "New project initialized.",
+      });
   }
 
   const [newInterest, setNewInterest] = useState("")
@@ -185,19 +233,25 @@ export default function ProfilePage() {
 
   const addInterest = () => {
     if (newInterest.trim()) {
+      const updatedInterests = [...profileData.researchInterests, newInterest.trim()];
       setProfileData({
         ...profileData,
-        researchInterests: [...profileData.researchInterests, newInterest.trim()]
+        researchInterests: updatedInterests
       })
+      updateUser({ researchInterests: updatedInterests });
       setNewInterest("")
+      toast({ title: "Interest added" });
     }
   }
 
   const removeInterest = (index: number) => {
+    const updatedInterests = profileData.researchInterests.filter((_, i) => i !== index);
     setProfileData({
       ...profileData,
-      researchInterests: profileData.researchInterests.filter((_, i) => i !== index)
+      researchInterests: updatedInterests
     })
+    updateUser({ researchInterests: updatedInterests });
+    toast({ title: "Interest removed" });
   }
 
   return (
@@ -386,7 +440,7 @@ export default function ProfilePage() {
                   </Badge>
                 </div>
               ))}
-              <Button className="w-full btn-primary">
+              <Button className="w-full btn-primary" onClick={handleAddProject}>
                 <Plus size={16} className="mr-2" />
                 Add Project
               </Button>
