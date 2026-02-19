@@ -1,0 +1,195 @@
+[2026-02-14T17:38:05.057Z] Creating new session 
+[2026-02-14T17:38:05.194Z] New session created {"currentSessionId":"e72309a4-493b-4daa-b8b7-c3a73e44b9bb"}
+[2026-02-14T17:38:05.194Z] Saving user message {"role":"user","senderId":"user-1"}
+[2026-02-14T17:38:05.214Z] User message saved successfully 
+[2026-02-14T17:38:05.214Z] Fetching resources for "What is the capital of France?"
+[2026-02-14T17:38:06.923Z] Resources fetched {"count":3}
+[2026-02-14T17:50:48.649Z] Creating new session 
+[2026-02-14T17:50:49.182Z] New session created {"currentSessionId":"b96bbbfd-7106-4de3-b724-24155d541877"}
+[2026-02-14T17:50:49.183Z] Skipping user message save {}
+[2026-02-14T17:50:49.183Z] Fetching resources for "explain quantum gravty"
+[2026-02-14T17:50:50.315Z] Resources fetched {"count":3}
+[2026-02-14T17:51:38.699Z] Creating new session 
+[2026-02-14T17:51:38.738Z] New session created {"currentSessionId":"d94f3757-8b30-461d-b59a-0a03178ac116"}
+[2026-02-14T17:51:38.738Z] Skipping user message save {}
+[2026-02-14T17:51:38.739Z] Fetching resources for "what is the capital of india"
+[2026-02-14T17:51:39.774Z] Resources fetched {"count":3}
+[2026-02-14T17:52:27.347Z] Creating new session 
+[2026-02-14T17:52:27.430Z] New session created {"currentSessionId":"4bca91ae-3559-455e-babc-ee38fdbee55b"}
+[2026-02-14T17:52:27.431Z] Skipping user message save {}
+[2026-02-14T17:52:27.431Z] Fetching resources for "explain quantum entanglement"
+[2026-02-14T17:52:27.495Z] Resources fetched {"count":3}
+[2026-02-14T17:54:31.228Z] Creating new session 
+[2026-02-14T17:54:31.317Z] New session created {"currentSessionId":"d8b0326c-b306-4c71-841a-3465872714eb"}
+[2026-02-14T17:54:31.317Z] Saving user message {"role":"user","senderId":"user-1"}
+[2026-02-14T17:54:31.328Z] User message saved successfully 
+[2026-02-14T17:54:31.328Z] Fetching resources for "What is the capital of France?"
+[2026-02-14T17:54:31.386Z] Resources fetched {"count":3}
+[2026-02-14T18:04:09.905Z] Creating new session 
+[2026-02-14T18:04:10.005Z] New session created {"currentSessionId":"62637185-a263-448c-aeeb-ef44cb6dbc55"}
+[2026-02-14T18:04:10.005Z] Skipping user message save {}
+[2026-02-14T18:04:10.005Z] Fetching resources for "explain quantum entanglement"
+[2026-02-14T18:04:11.505Z] Resources fetched {"count":3}
+[2026-02-14T19:02:41.123Z] Using existing session {"currentSessionId":"62637185-a263-448c-aeeb-ef44cb6dbc55"}
+[2026-02-14T19:02:41.125Z] Skipping user message save {}
+[2026-02-14T19:02:41.125Z] Fetching resources for "explain quantum computing"
+[2026-02-14T19:02:42.896Z] Resources fetched {"count":3}
+[2026-02-14T19:07:53.043Z] Using existing session {"currentSessionId":"62637185-a263-448c-aeeb-ef44cb6dbc55"}
+[2026-02-14T19:07:53.044Z] Saving user message {"senderId":"user-1"}
+[2026-02-14T19:07:53.162Z] User message saved successfully 
+[2026-02-14T19:07:53.163Z] Fetching resources for "explain recursive language models"
+[2026-02-14T19:07:54.548Z] Resources fetched {"count":3}
+[2026-02-14T19:19:34.297Z] Creating new session 
+[2026-02-14T19:19:34.633Z] New session created {"currentSessionId":"23181bc0-eca7-48ab-aefe-56d739599ba2"}
+[2026-02-14T19:19:34.633Z] Saving user message {"role":"user","senderId":"user-1"}
+[2026-02-14T19:19:34.654Z] User message saved successfully 
+[2026-02-14T19:19:34.654Z] Fetching resources for "Hello, verification test!"
+[2026-02-14T19:19:36.286Z] Resources fetched {"count":3}
+[2026-02-14T19:24:37.556Z] Using existing session {"currentSessionId":"62637185-a263-448c-aeeb-ef44cb6dbc55"}
+[2026-02-14T19:24:37.558Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T19:24:37.761Z] User message saved successfully 
+[2026-02-14T19:24:37.762Z] Fetching resources for "explain quantum gravity"
+[2026-02-14T19:24:39.050Z] Resources fetched {"count":3}
+[2026-02-14T19:29:19.527Z] Using existing session {"currentSessionId":"62637185-a263-448c-aeeb-ef44cb6dbc55"}
+[2026-02-14T19:29:19.530Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T19:29:19.644Z] User message saved successfully 
+[2026-02-14T19:29:19.644Z] Fetching resources for "explain the best way to brush my teeth"
+[2026-02-14T19:29:21.211Z] Resources fetched {"count":3}
+[2026-02-14T19:30:07.973Z] Creating new session 
+[2026-02-14T19:30:08.031Z] New session created {"currentSessionId":"6d0d27bf-790b-4bd7-8f5c-e37313389ae8"}
+[2026-02-14T19:30:08.032Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T19:30:08.049Z] User message saved successfully 
+[2026-02-14T19:30:08.049Z] Fetching resources for "explain me best way to brush my hair"
+[2026-02-14T19:30:09.225Z] Resources fetched {"count":3}
+[2026-02-14T19:44:54.520Z] Creating new session 
+[2026-02-14T19:44:54.661Z] New session created {"currentSessionId":"801c7ef0-8a54-4120-90b0-ad3658468e66"}
+[2026-02-14T19:44:54.661Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T19:44:54.702Z] User message saved successfully 
+[2026-02-14T19:44:54.702Z] Fetching resources for "explain famous techniques in acting"
+[2026-02-14T19:44:55.918Z] Resources fetched {"count":3}
+[2026-02-14T19:50:02.209Z] Creating new session 
+[2026-02-14T19:50:02.505Z] New session created {"currentSessionId":"82b00709-4c6b-4656-8011-6d7bce6c6535"}
+[2026-02-14T19:50:02.505Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T19:50:02.544Z] User message saved successfully 
+[2026-02-14T19:50:02.544Z] Fetching resources for "explain stanislevyski method of acting"
+[2026-02-14T19:50:03.341Z] Resources fetched {"count":0}
+[2026-02-14T19:51:18.939Z] Creating new session 
+[2026-02-14T19:51:19.073Z] New session created {"currentSessionId":"8fa6c0fc-e201-4088-af6c-5aee985bad65"}
+[2026-02-14T19:51:19.073Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T19:51:19.097Z] User message saved successfully 
+[2026-02-14T19:51:19.099Z] Fetching resources for "what is Meisner method"
+[2026-02-14T19:51:20.019Z] Resources fetched {"count":3}
+[2026-02-14T20:21:06.575Z] Creating new session 
+[2026-02-14T20:21:06.650Z] New session created {"currentSessionId":"2dfa94a6-5293-4854-96a5-0ff16f103217"}
+[2026-02-14T20:21:06.650Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T20:21:06.684Z] User message saved successfully 
+[2026-02-14T20:21:06.684Z] Fetching resources for "explain how an inductor works"
+[2026-02-14T20:21:07.631Z] Resources fetched {"count":3}
+[2026-02-14T20:29:26.954Z] Creating new session 
+[2026-02-14T20:29:27.073Z] New session created {"currentSessionId":"394067a2-6598-4875-92d6-980bd98896ab"}
+[2026-02-14T20:29:27.073Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T20:29:27.121Z] User message saved successfully 
+[2026-02-14T20:29:27.121Z] Fetching resources for "what is a capacitor"
+[2026-02-14T20:29:28.578Z] Resources fetched {"count":3}
+[2026-02-14T20:30:16.173Z] Creating new session 
+[2026-02-14T20:30:16.217Z] New session created {"currentSessionId":"37e12b1a-d010-42c7-b734-7a26bccfb2a6"}
+[2026-02-14T20:30:16.217Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T20:30:16.245Z] User message saved successfully 
+[2026-02-14T20:30:16.245Z] Fetching resources for "tell me a joke"
+[2026-02-14T20:30:17.318Z] Resources fetched {"count":3}
+[2026-02-14T20:59:55.739Z] Creating new session 
+[2026-02-14T20:59:55.872Z] New session created {"currentSessionId":"93e815c9-5e1e-47de-b0e2-290d3ca1ed4d"}
+[2026-02-14T20:59:55.872Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T20:59:55.903Z] User message saved successfully 
+[2026-02-14T20:59:55.904Z] Fetching resources for "explain research methodologies"
+[2026-02-14T20:59:57.664Z] Resources fetched {"count":3}
+[2026-02-14T21:11:39.093Z] Creating new session 
+[2026-02-14T21:11:39.216Z] New session created {"currentSessionId":"919cfe59-e64b-4942-b889-87749920ee6b"}
+[2026-02-14T21:11:39.216Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:11:39.252Z] User message saved successfully 
+[2026-02-14T21:11:39.252Z] Fetching resources for "explain the big bang theory"
+[2026-02-14T21:11:40.996Z] Resources fetched {"count":3}
+[2026-02-14T21:13:04.975Z] Creating new session 
+[2026-02-14T21:13:04.997Z] New session created {"currentSessionId":"ec474a96-ced1-4593-9808-bd98defef92e"}
+[2026-02-14T21:13:04.997Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:13:05.017Z] User message saved successfully 
+[2026-02-14T21:13:05.017Z] Fetching resources for "explain current and voltage"
+[2026-02-14T21:13:06.251Z] Resources fetched {"count":3}
+[2026-02-14T21:16:55.547Z] Using existing session {"currentSessionId":"ec474a96-ced1-4593-9808-bd98defef92e"}
+[2026-02-14T21:16:55.549Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:16:55.724Z] Failed to save user message {}
+[2026-02-14T21:18:02.934Z] Creating new session 
+[2026-02-14T21:18:02.977Z] New session created {"currentSessionId":"72a4e1b6-f61d-43ea-b879-b732df111383"}
+[2026-02-14T21:18:02.977Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:18:02.996Z] User message saved successfully 
+[2026-02-14T21:18:02.996Z] Fetching resources for "explain how to make khichdi"
+[2026-02-14T21:18:04.031Z] Resources fetched {"count":3}
+[2026-02-14T21:24:40.618Z] Creating new session 
+[2026-02-14T21:24:40.657Z] New session created {"currentSessionId":"f75caf90-34ce-4b4a-be1a-4fb672222a57"}
+[2026-02-14T21:24:40.658Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:24:40.694Z] User message saved successfully 
+[2026-02-14T21:24:40.694Z] Fetching resources for "give me tips to act better"
+[2026-02-14T21:24:42.442Z] Resources fetched {"count":3}
+[2026-02-14T21:48:59.997Z] Creating new session 
+[2026-02-14T21:49:00.131Z] New session created {"currentSessionId":"d54726b9-0acd-464e-81a0-71c04fa2bfbe"}
+[2026-02-14T21:49:00.132Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:49:00.169Z] User message saved successfully 
+[2026-02-14T21:49:00.169Z] Fetching resources for "explain ladeurs principle"
+[2026-02-14T21:49:01.623Z] Resources fetched {"count":3}
+[2026-02-14T21:49:15.520Z] Creating new session 
+[2026-02-14T21:49:15.553Z] New session created {"currentSessionId":"cf78a312-232c-4f1a-9df9-58536a911331"}
+[2026-02-14T21:49:15.554Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:49:15.573Z] User message saved successfully 
+[2026-02-14T21:49:15.574Z] Fetching resources for "explain landaus principle"
+[2026-02-14T21:49:17.044Z] Resources fetched {"count":3}
+[2026-02-14T21:52:26.054Z] Creating new session 
+[2026-02-14T21:52:26.174Z] New session created {"currentSessionId":"eeec3501-fe7f-457a-913a-a8ae767d2ab4"}
+[2026-02-14T21:52:26.174Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:52:26.217Z] User message saved successfully 
+[2026-02-14T21:52:26.217Z] Fetching resources for "explain radiation"
+[2026-02-14T21:52:27.620Z] Resources fetched {"count":3}
+[2026-02-14T21:54:29.723Z] Creating new session 
+[2026-02-14T21:54:29.777Z] New session created {"currentSessionId":"383f0160-8d73-4279-b91d-fb7e162274aa"}
+[2026-02-14T21:54:29.777Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:54:29.816Z] User message saved successfully 
+[2026-02-14T21:54:29.816Z] Fetching resources for "explain llms"
+[2026-02-14T21:54:31.736Z] Resources fetched {"count":2}
+[2026-02-14T21:54:51.843Z] Creating new session 
+[2026-02-14T21:54:51.874Z] New session created {"currentSessionId":"4f12514d-f8fa-49ec-a4a0-e3766aae22c5"}
+[2026-02-14T21:54:51.874Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T21:54:51.892Z] User message saved successfully 
+[2026-02-14T21:54:51.892Z] Fetching resources for "explain llms"
+[2026-02-14T21:54:53.638Z] Resources fetched {"count":3}
+[2026-02-14T22:14:25.721Z] Creating new session 
+[2026-02-14T22:14:26.034Z] New session created {"currentSessionId":"d168c433-e6ef-4fab-b914-470e23f1661c"}
+[2026-02-14T22:14:26.035Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T22:14:26.090Z] Failed to save user message {}
+[2026-02-14T22:15:14.337Z] Creating new session 
+[2026-02-14T22:15:14.483Z] New session created {"currentSessionId":"2f723c09-17ac-4b96-8d65-97f539b37cde"}
+[2026-02-14T22:15:14.488Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T22:15:14.774Z] Failed to save user message {}
+[2026-02-14T22:19:58.772Z] Creating new session 
+[2026-02-14T22:19:58.964Z] New session created {"currentSessionId":"2f782adb-7eb0-42c0-bbf7-deca9b30a243"}
+[2026-02-14T22:19:58.964Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T22:20:00.639Z] User message saved successfully 
+[2026-02-14T22:20:00.640Z] Fetching resources for "How is it"
+[2026-02-14T22:20:03.023Z] Resources fetched {"count":3}
+[2026-02-14T22:41:24.421Z] Creating new session 
+[2026-02-14T22:41:24.646Z] New session created {"currentSessionId":"9420832d-4e81-4ee9-b0f5-36009f3108b0"}
+[2026-02-14T22:41:24.646Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T22:41:26.021Z] User message saved successfully 
+[2026-02-14T22:41:26.021Z] Fetching resources for "how is it?"
+[2026-02-14T22:41:26.255Z] Resources fetched {"count":3}
+[2026-02-14T22:42:16.996Z] Creating new session 
+[2026-02-14T22:42:17.107Z] New session created {"currentSessionId":"72bc5801-dcc3-4f81-bc01-7bfee54959f3"}
+[2026-02-14T22:42:17.107Z] Saving user message {"role":"user","sender":"user","senderId":"user-1"}
+[2026-02-14T22:42:17.128Z] User message saved successfully 
+[2026-02-14T22:42:17.128Z] Fetching resources for "I asked you how is it. not explain it"
+[2026-02-14T22:42:18.429Z] Resources fetched {"count":3}
+[2026-02-14T23:31:37.184Z] Creating new session 
+[2026-02-15T00:44:04.991Z] Creating new session 
+[2026-02-15T00:44:36.121Z] Creating new session 
+[2026-02-15T16:29:03.127Z] Creating new session {"projectId":"1"}
+[2026-02-15T16:29:41.977Z] Creating new session {"projectId":"1"}
+[2026-02-15T16:46:26.792Z] Creating new session {}
+[2026-02-15T17:01:46.792Z] Creating new session {}

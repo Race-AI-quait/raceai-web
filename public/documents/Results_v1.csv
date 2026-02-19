@@ -1,0 +1,4 @@
+experiment,accuracy,loss
+baseline,0.78,0.62
+variant_a,0.82,0.55
+variant_b,0.85,0.50

@@ -1,7 +1,60 @@
 "use client";
 import { createContext, useContext, useState, ReactNode, useEffect } from "react";
-import { Project, ProjectNode, ProjectStatus } from "../types/project";
+import { Project, ProjectNode, ProjectStatus, ProjectCollaborator } from "../types/project";
 import { mockProjects } from "../data/mockProjects";
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+
+const generateId = () =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+
+const mapCollaborators = (collaborators: any[] = []): ProjectCollaborator[] =>
+  collaborators.map((collab) => ({
+    id: collab.id || collab.userId || generateId(),
+    name: collab.name || collab.user?.name || "Researcher",
+    email: collab.email || collab.user?.email || "",
+    role: (collab.role?.toLowerCase?.() as ProjectCollaborator["role"]) || "viewer",
+    avatar: collab.avatar || collab.user?.avatar || undefined,
+    status: collab.status || "online",
+  }));
+
+const normalizeProjectNode = (node: any, projectId: string): ProjectNode => ({
+  id: node.id || generateId(),
+  name: node.name || "Untitled",
+  type: node.type === "file" ? "file" : "folder",
+  projectId,
+  description: node.description,
+  fileUrl: node.fileUrl || undefined,
+  fileType: node.fileType,
+  size: typeof node.size === "string" ? node.size : undefined,
+  lastModified: node.lastModified,
+  collaborators: node.collaborators ? mapCollaborators(node.collaborators) : undefined,
+  children: Array.isArray(node.children)
+    ? node.children.map((child: any) => normalizeProjectNode(child, projectId))
+    : undefined,
+});
+
+const normalizeProjectFromApi = (project: any): Project => {
+  const projectId = project.id || crypto.randomUUID();
+  return {
+    id: projectId,
+    name: project.name || project.title || "Untitled Project",
+    description: project.description || "",
+    status: (project.status as ProjectStatus) || "active",
+    progress: typeof project.progress === "number" ? project.progress : Math.floor(Math.random() * 80) + 10,
+    dueDate: project.dueDate,
+    createdAt: project.createdAt || new Date().toISOString(),
+    updatedAt: project.updatedAt || new Date().toISOString(),
+    rootNode: normalizeProjectNode(project, projectId),
+    team: mapCollaborators(project.collaborators),
+    chatSessionIds: project.chatSessionIds || [],
+    tags: project.tags || [],
+    isStarred: Boolean(project.isStarred),
+    color: project.color || "#3b82f6",
+  };
+};
 
 interface ProjectContextState {
   projects: Project[];
@@ -30,8 +83,43 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
 
   // Load initial data
   useEffect(() => {
-    // In a real app, fetch from API. For now, use mock data.
-    setProjects(mockProjects);
+    const loadProjects = async () => {
+      if (!BACKEND_URL) {
+        setProjects(mockProjects);
+        return;
+      }
+
+      let userId = "user-1";
+      if (typeof window !== "undefined") {
+        try {
+          const stored = localStorage.getItem("race_ai_user");
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (parsed?.id) userId = parsed.id;
+          }
+        } catch {
+          // ignore parsing errors, fall back to default user
+        }
+      }
+
+      try {
+        const resp = await fetch(`${BACKEND_URL}/projects/structuredProjects/${userId}`);
+        if (!resp.ok) {
+          throw new Error(`Failed to fetch projects: ${resp.status}`);
+        }
+        const data = await resp.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setProjects(data.map(normalizeProjectFromApi));
+        } else {
+          setProjects(mockProjects);
+        }
+      } catch (error) {
+        console.error("Failed to load projects from backend, using mock data.", error);
+        setProjects(mockProjects);
+      }
+    };
+
+    loadProjects();
   }, []);
 
   const addProject = (project: Project) => {

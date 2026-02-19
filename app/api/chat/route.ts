@@ -3,7 +3,32 @@ import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 import { mistral } from "@ai-sdk/mistral";
-import { generateText } from "ai";
+import { streamText } from "ai";
+import { dataService } from "@/lib/data-service";
+import * as fs from 'fs';
+import * as path from 'path';
+
+const LOG_FILE = path.join(process.cwd(), 'debug_route.log');
+
+function logDebug(message: string, data?: any) {
+  const timestamp = new Date().toISOString();
+  let payload = "";
+  if (data instanceof Error) {
+    payload = JSON.stringify({ message: data.message, stack: data.stack });
+  } else if (data !== undefined) {
+    try {
+      payload = JSON.stringify(data);
+    } catch {
+      payload = String(data);
+    }
+  }
+  const logEntry = `[${timestamp}] ${message} ${payload}\n`;
+  try {
+    fs.appendFileSync(LOG_FILE, logEntry);
+  } catch (e) {
+    console.error('Failed to write log:', e);
+  }
+}
 
 /* --------------------------------------------------------
    SAFE JSON PARSER (AUTO-REPAIR)
@@ -124,9 +149,53 @@ function getModel(modelId: string) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { messages, model = "gpt-4o", includeResources = true, systemInstruction } = body;
+    const { messages, model = "gpt-4o", includeResources = true, systemInstruction, sessionId, projectId } = body;
 
     const last = messages[messages.length - 1];
+
+    // 1. Ensure Session Exists
+    let currentSessionId = sessionId;
+    if (!currentSessionId) {
+      logDebug('Creating new session', { projectId });
+      // Create new session
+      const title = typeof last.content === 'string'
+        ? last.content.substring(0, 50)
+        : "New Chat";
+
+      const newChat = await dataService.createChat({
+        title,
+        projectId,
+        owner_id: "user-1", // Should come from session/auth
+      });
+      currentSessionId = newChat.id;
+      logDebug('New session created', { currentSessionId });
+    } else {
+      logDebug('Using existing session', { currentSessionId });
+    }
+
+
+    // 2. Save User Message
+    const isUserMessage = last.role === 'user' || last.sender === 'user';
+    if (isUserMessage) {
+      logDebug('Saving user message', { role: last.role, sender: last.sender, senderId: "user-1" });
+      try {
+        await dataService.addMessage(currentSessionId, {
+          role: 'user',
+          content: typeof last.content === 'string' ? last.content : JSON.stringify(last.content),
+          senderId: "user-1"
+        });
+        logDebug('User message saved successfully');
+      } catch (e) {
+        logDebug('Failed to save user message', e);
+        // CRITICAL: Fail here to prevent inconsistent state
+        return NextResponse.json(
+          { error: "Failed to save user message. Please try again." },
+          { status: 500 }
+        );
+      }
+    } else {
+      logDebug('Skipping user message save - not identified as user', { role: last.role, sender: last.sender });
+    }
 
     /* -----------------------------
        Convert UI messages → LLM messages
@@ -154,62 +223,71 @@ export async function POST(request: NextRequest) {
     }
 
     if (includeResources && searchQuery) {
+      logDebug('Fetching resources for', searchQuery);
       resources = await fetchResources(searchQuery);
+      logDebug('Resources fetched', { count: resources.length });
     }
 
     /* -----------------------------
-       Request LLM with JSON-enforced format
+       Request LLM with Streaming
     ----------------------------- */
     const modelInstance = getModel(model);
 
-    // Combine custom persona instruction with strict JSON enforcement
-    const baseSystemPrompt = systemInstruction || "You are JARVIS, an advanced research assistant.";
-    const jsonEnforcementPrompt = `
-You MUST return ONLY a JSON array named "blocks", example:
+    // Combine custom persona instruction (No JSON enforcement needed for streaming text)
+    const defaultResearchPrompt = [
+      "You are Ri, the research copilot for the RACE AI platform.",
+      "Responsibilities:",
+      "1. Interpret every query as a research or technical task. Provide structured, rigorous answers.",
+      "2. When the user supplies files or images, describe the key observations from that artifact before drawing conclusions.",
+      "3. Reply with sections: Summary, Technical Details (bullet or numbered when helpful), and Next Steps/Recommendations.",
+      "4. Reference any cited sources or caller-provided context explicitly. If information is missing, state assumptions or ask a clarifying question after giving your best analysis.",
+      "5. Math must use $inline$ or $$block$$ LaTeX delimiters. Keep tone professional and concise."
+    ].join(" ");
+    const baseSystemPrompt = systemInstruction || defaultResearchPrompt;
 
-[
-  { "type": "paragraph", "text": "..." },
-  { "type": "heading", "level": 1, "text": "..." },
-  { "type": "code", "language": "python", "code": "print('Hello')" }
-]
-
-STRICT RULES:
-- No markdown
-- No backticks
-- No commentary
-- Do NOT wrap JSON in text
-- Output raw JSON ONLY
-`;
-
-    const response = await generateText({
-      model: modelInstance as any,
-      system: `${baseSystemPrompt}\n\n${jsonEnforcementPrompt}`,
-      messages: formattedMessages,
-    });
-
-    /* -----------------------------
-       Parse blocks safely
-    ----------------------------- */
-    let blocks = safeParse(response.text);
-
-    if (!validateBlocks(blocks)) {
-      console.warn("Invalid block output → Falling back to paragraph.");
-      blocks = [
-        { type: "paragraph", text: response.text }
-      ];
+    // Inject resources if found
+    let finalSystemPrompt = baseSystemPrompt;
+    if (resources.length > 0) {
+      const resourceContext = resources.map(r => `[${r.title}](${r.url}): ${r.snippet}`).join("\n\n");
+      finalSystemPrompt += `\n\nUse the following context to answer if relevant:\n${resourceContext}`;
     }
 
-    /* -----------------------------
-       Send message to UI
-    ----------------------------- */
-    return NextResponse.json({
-      message: {
-        id: Date.now().toString(),
-        sender: "assistant",
-        blocks,
-        timestamp: new Date().toISOString(),
-        resources,
-      },
+    // Use streamText instead of generateText
+    const result = await streamText({
+      model: modelInstance as any,
+      system: finalSystemPrompt,
+      messages: formattedMessages,
+      onFinish: async (completion: any) => {
+        // 3. Save Assistant Message on Finish
+        const finalContentPayload = resources.length > 0
+          ? JSON.stringify({ content: completion.text, resources })
+          : completion.text;
+
+        await dataService.addMessage(currentSessionId, {
+          role: 'assistant',
+          content: finalContentPayload
+        });
+      }
+    });
+
+    // Get the base stream response
+    const response = result.toTextStreamResponse();
+
+    // Create a new response with the resources header AND Session ID
+    // We clone the headers and add ours
+    const headers = new Headers(response.headers);
+    if (resources && resources.length > 0) {
+      // Base64 encode to avoid invalid header characters (e.g. unicode)
+      const encodedResources = Buffer.from(JSON.stringify(resources)).toString('base64');
+      headers.set("X-RaceAI-Resources", encodedResources);
+    }
+    // Return Session ID so client can update URL/State
+    headers.set("X-Session-Id", currentSessionId);
+
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: headers
     });
 
   } catch (err) {

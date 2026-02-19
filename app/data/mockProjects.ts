@@ -27,8 +27,8 @@ export const mockProjects: Project[] = [
                     name: "Literature Review",
                     type: "folder",
                     children: [
-                        { id: "d-1", name: "Transformer_Architecture.pdf", type: "file", fileType: "pdf", size: "2.4 MB", lastModified: "2 days ago" },
-                        { id: "d-2", name: "Notes_on_Attention.md", type: "file", fileType: "md", size: "15 KB", lastModified: "1 week ago" }
+                        { id: "d-1", name: "Transformer_Architecture.pdf", type: "file", fileType: "pdf", size: "2.4 MB", lastModified: "2 days ago", fileUrl: "/documents/Transformer_Architecture.pdf" },
+                        { id: "d-2", name: "Notes_on_Attention.md", type: "file", fileType: "md", size: "15 KB", lastModified: "1 week ago", fileUrl: "/documents/Notes_on_Attention.md" }
                     ]
                 },
                 {
@@ -36,7 +36,7 @@ export const mockProjects: Project[] = [
                     name: "Experiments",
                     type: "folder",
                     children: [
-                        { id: "d-3", name: "Results_v1.csv", type: "file", fileType: "other", size: "450 KB", lastModified: "Yesterday" }
+                        { id: "d-3", name: "Results_v1.csv", type: "file", fileType: "other", size: "450 KB", lastModified: "Yesterday", fileUrl: "/documents/Results_v1.csv" }
                     ]
                 }
             ]
@@ -62,7 +62,7 @@ export const mockProjects: Project[] = [
             name: "Topics",
             type: "folder",
             children: [
-                { id: "d-4", name: "BERT_Analysis.pdf", type: "file", fileType: "pdf", size: "1.8 MB", lastModified: "3 days ago" }
+                { id: "d-4", name: "BERT_Analysis.pdf", type: "file", fileType: "pdf", size: "1.8 MB", lastModified: "3 days ago", fileUrl: "/documents/BERT_Analysis.pdf" }
             ]
         }
     },
