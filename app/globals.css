@@ -107,31 +107,31 @@ h6 {
 }
 
 .dark {
-  --background: #0A1929;
-  --foreground: #F8FAFC;
-  --card: #111827;
-  --card-foreground: #F8FAFC;
-  --primary: var(--color-action-primary);
-  --primary-foreground: var(--color-white);
-  --muted: #1E293B;
-  --muted-foreground: #94A3B8;
+  --background: #010409;
+  --foreground: #E6E8F0;
+  --card: #12141c;
+  --card-foreground: #E6E8F0;
+  --primary: #6EACDA;
+  --primary-foreground: #010409;
+  --muted: #1a1d27;
+  --muted-foreground: #B8C7D9;
   --border: rgba(255, 255, 255, 0.08);
-  --input: #1E293B;
-  --ring: var(--color-action-primary);
-  --accent: #1E293B;
-  --accent-foreground: #F8FAFC;
+  --input: #1a1d27;
+  --ring: #6EACDA;
+  --accent: #1f2230;
+  --accent-foreground: #E6E8F0;
   --destructive: var(--color-error);
   --destructive-foreground: var(--color-white);
   --success: var(--color-success);
   --success-foreground: var(--color-white);
   --warning: var(--color-warning);
-  --warning-foreground: #0A1929;
+  --warning-foreground: #010409;
 
   /* Gradient Variables */
-  --gradient-dark: linear-gradient(135deg, #0D47A1 0%, #1565C0 25%, #1976D2 50%, #1E88E5 75%, #2196F3 100%);
-  --gradient-accent-dark: linear-gradient(135deg, #4A148C 0%, #6A1B9A 50%, #7B1FA2 100%);
-  --gradient-radial-dark: radial-gradient(circle at 20% 50%, rgba(33, 150, 243, 0.15) 0%, transparent 50%),
-    radial-gradient(circle at 80% 80%, rgba(156, 39, 176, 0.12) 0%, transparent 50%);
+  --gradient-dark: linear-gradient(135deg, #010409 0%, #0a0d15 40%, #12141c 100%);
+  --gradient-accent-dark: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 100%);
+  --gradient-radial-dark: radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.05) 0%, transparent 55%),
+    radial-gradient(circle at 80% 70%, rgba(255, 255, 255, 0.03) 0%, transparent 60%);
 }
 
 /* ========================================
@@ -765,10 +765,8 @@ select:focus {
   }
 
   .dark body {
-      /* Restore original global dark mode (Clean Dark) */
-      background: #020817; /* Default Shadcn/Slate-950 */
-      /* No global gradient here - Home page will handle its own */
-      color: #ffffff;
+      background: var(--gradient-dark);
+      color: var(--foreground);
   }
 }
 
@@ -865,6 +863,9 @@ textarea,
   flex-shrink: 0;
   border-right: 1px solid var(--border);
   background: var(--card);
+}
+.dark .layout-sidebar {
+  background: #101218;
 }
 
 .layout-main {

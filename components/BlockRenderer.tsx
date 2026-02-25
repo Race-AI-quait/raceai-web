@@ -12,15 +12,18 @@ import "katex/dist/katex.min.css";
 import { useState } from "react";
 import { X, Play, FileText, Download, Music, Video } from "lucide-react";
 
+import Markdown from "./Markdown";
+
 export default function BlockRenderer({ block }: { block: Block }) {
   const [isImageOpen, setIsImageOpen] = useState(false);
 
   switch (block.type) {
     case "paragraph":
+    case "text":
       return (
-        <p className="leading-relaxed text-sm whitespace-pre-wrap">
-          {block.text}
-        </p>
+        <div className="leading-relaxed text-sm">
+          <Markdown>{block.text}</Markdown>
+        </div>
       );
 
     case "heading":
@@ -90,7 +93,7 @@ export default function BlockRenderer({ block }: { block: Block }) {
             onClick={() => setIsImageOpen(true)}
           >
             <img
-              src={block.url}
+              src={block.url || block.image}
               alt={block.alt}
               className="rounded-xl max-h-48 object-cover border border-white/10 shadow-sm transition-transform hover:scale-[1.02]"
             />
@@ -108,11 +111,11 @@ export default function BlockRenderer({ block }: { block: Block }) {
                 <X size={24} />
               </button>
               <img
-                src={block.url}
-                alt={block.alt}
-                className="max-w-full max-h-[90vh] rounded-lg shadow-2xl scale-100"
-                onClick={(e) => e.stopPropagation()}
-              />
+              src={block.url || block.image}
+              alt={block.alt}
+              className="max-w-full max-h-[90vh] rounded-lg shadow-2xl scale-100"
+              onClick={(e) => e.stopPropagation()}
+            />
             </div>
           )}
         </>

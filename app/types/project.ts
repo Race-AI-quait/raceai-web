@@ -15,6 +15,7 @@ export interface ProjectNode {
   id: string;
   name: string;
   type: "folder" | "file";
+  projectId?: string;
   parentId?: string; // Helpful for traversal
   description?: string;
   content?: string; // For simple notes/text files
@@ -64,4 +65,3 @@ export interface Project {
   isStarred?: boolean;
   color?: string; // UI visual identifier
 }
-

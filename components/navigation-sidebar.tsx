@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { MessageSquare, Search, Users, Lightbulb, User, Settings, LayoutDashboard, FolderKanban, Bot } from "lucide-react"
+import { MessageSquare, Search, Users, Lightbulb, User, Settings, LayoutDashboard, FolderKanban } from "lucide-react"
 import ModernLogo from "@/components/modern-logo"
 import { ThemeToggle } from "./theme-toggle"
 import Image from "next/image"
@@ -25,12 +25,6 @@ const navigationItems = [
     label: "Chat",
     icon: MessageSquare,
     path: "/jarvis",
-  },
-  {
-    id: "agents",
-    label: "Agents",
-    icon: Bot,
-    path: "/agents",
   },
   {
     id: "knowledge",

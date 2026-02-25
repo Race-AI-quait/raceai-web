@@ -1,5 +1,5 @@
 "use client"
-import { useState } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,6 +12,13 @@ import dynamic from "next/dynamic";
 const PDFViewer = dynamic(() => import("@/components/pdfviewer"), { ssr: false });
 import { ResearchChat } from "@/components/ResearchChat"; // Import new component
 import { useChatContext } from "@/app/context/ChatContext"; // Import context
+import * as pdfjsLib from "pdfjs-dist/build/pdf";
+
+if (typeof window !== "undefined") {
+  // Align worker with pdf.js CDN to prevent bundler issues
+  // @ts-ignore - workerSrc exists at runtime
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js`;
+}
 
 
 
@@ -97,6 +104,50 @@ const findNodeInTree = (node: ProjectNode, targetId: string): boolean => {
   return false;
 };
 
+const annotateNodeWithProject = (node: ProjectNode, projectId: string): ProjectNode => {
+  const clonedChildren = node.children?.map(child => annotateNodeWithProject(child, projectId));
+  const fallbackFileUrl = node.fileUrl || (node.type === "file" ? `/documents/${encodeURIComponent(node.name)}` : undefined);
+  return {
+    ...node,
+    projectId,
+    fileUrl: fallbackFileUrl,
+    children: clonedChildren
+  };
+};
+
+const extractTextFromPdfUrl = async (url: string): Promise<string> => {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to load PDF from ${url}`);
+  const buffer = await res.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+  let text = "";
+  const maxPages = Math.min(pdf.numPages, 10);
+  for (let i = 1; i <= maxPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    // @ts-ignore - pdf.js typing looseness
+    const strings = content.items.map((item: any) => item.str);
+    text += strings.join(" ") + "\n";
+  }
+  if (pdf.numPages > maxPages) {
+    text += "\n...[Document truncated for context extraction]...";
+  }
+  return text;
+};
+
+const collectProjectFileSummaries = (node?: ProjectNode): string[] => {
+  if (!node) return [];
+  const summaries: string[] = [];
+  const traverse = (current: ProjectNode) => {
+    if (current.type === "file") {
+      summaries.push(current.name);
+    }
+    current.children?.forEach(traverse);
+  };
+  traverse(node);
+  return summaries;
+};
+
 export default function ResearchCollaborationPage() {
 
   const { toast } = useToast()
@@ -117,48 +168,71 @@ export default function ResearchCollaborationPage() {
   const [selectedFile, setSelectedFile] = useState<ProjectNode | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<ProjectNode | null>(null)
   const [selectedChatId, setSelectedChatId] = useState<string | null>(null); // New state for chat selection
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [fileContext, setFileContext] = useState<{ name: string; text: string; type?: string } | null>(null);
+  const [selectedFileContent, setSelectedFileContent] = useState<string>("");
+  const [isLoadingFileContext, setIsLoadingFileContext] = useState(false);
   
   const { chatSessions } = useChatContext(); // Get chats from context
 
-  // Flatten projects to rootNodes for the tree view
-  const projectStructure: ProjectNode[] = projects.map(p => {
-    // Clone the rootNode to avoid mutating the context state directly
-    const rootNodeClone = JSON.parse(JSON.stringify(p.rootNode));
+  useEffect(() => {
+    if (!activeProjectId && projects.length > 0) {
+      setActiveProjectId(projects[0].id);
+    }
+  }, [projects, activeProjectId]);
 
-    // Inject "Chats" folder - STRICT FILTERING by Project ID
-    const projectChats = chatSessions.filter(c => c.projectId === p.id); 
-    
-    // We Map real chat sessions to file nodes
-    const chatNodes: ProjectNode[] = projectChats.map(chat => ({
+  const activeProject = useMemo(() => {
+    return projects.find(p => p.id === (activeProjectId || projects[0]?.id)) || projects[0] || null;
+  }, [projects, activeProjectId]);
+
+  const activeProjectContext = useMemo(() => {
+    if (!activeProject) return undefined;
+    const files = collectProjectFileSummaries(activeProject.rootNode).slice(0, 8);
+    return {
+      id: activeProject.id,
+      name: activeProject.name,
+      description: activeProject.description,
+      status: activeProject.status,
+      progress: activeProject.progress,
+      documents: files
+    };
+  }, [activeProject]);
+
+  const projectStructure: ProjectNode[] = useMemo(() => {
+    return projects.map(project => {
+      const annotatedRoot = annotateNodeWithProject(project.rootNode, project.id);
+      annotatedRoot.id = project.rootNode.id || project.id;
+      annotatedRoot.name = project.name;
+      annotatedRoot.type = "folder";
+
+      const projectChats = chatSessions.filter(c => c.projectId === project.id);
+      const chatNodes: ProjectNode[] = projectChats.map(chat => ({
         id: `chat-node-${chat.id}`,
         name: chat.title || "Untitled Chat",
         type: "file",
-        fileType: "other", // Use specific icon logic later
-    }));
+        projectId: project.id,
+        fileType: "chat"
+      }));
 
-    // Check if Chats folder exists, if so append, else create
-    const chatsFolder = rootNodeClone.children?.find((c: ProjectNode) => c.name === "Chats");
-    if (chatsFolder) {
-        // Append real chats if not already there (avoid dupes if tree is persisted)
-        // Since tree is rebuilt on render here from p.rootNode, we can just Replace or Merge.
-        // Simplified: We assume p.rootNode DOES NOT contain the dynamic chat nodes from ChatContext, so we inject them.
-        chatsFolder.children = [...(chatsFolder.children || []), ...chatNodes];
-    } else {
-        rootNodeClone.children = [{
-            id: `chats-${p.id}`,
-            name: "Chats",
-            type: "folder",
-            children: chatNodes
-        }, ...(rootNodeClone.children || [])];
-    }
+      const children = annotatedRoot.children ? [...annotatedRoot.children] : [];
+      const chatsFolderIndex = children.findIndex(child => child.name === "Chats");
+      const chatFolder: ProjectNode = {
+        id: `chats-${project.id}`,
+        name: "Chats",
+        type: "folder",
+        projectId: project.id,
+        children: chatNodes
+      };
 
-    return {
-      ...rootNodeClone,
-      id: p.rootNode.id || p.id,
-      name: p.name,
-      type: "folder"
-    }
-  });
+      if (chatsFolderIndex >= 0) {
+        children[chatsFolderIndex] = { ...children[chatsFolderIndex], children: chatNodes, projectId: project.id };
+      } else {
+        children.unshift(chatFolder);
+      }
+      annotatedRoot.children = children;
+      return annotatedRoot;
+    });
+  }, [projects, chatSessions]);
 
   const handleAddProject = () => {
     const newProjectId = Date.now().toString();
@@ -440,6 +514,35 @@ export default function ResearchCollaborationPage() {
     toast({ title: "Attached", description: "Whiteboard drawing saved to project." });
   };
 
+  const loadFileContext = async (file: ProjectNode) => {
+    if (!file.fileUrl) {
+      setFileContext(null);
+      setSelectedFileContent("");
+      return;
+    }
+    setIsLoadingFileContext(true);
+    try {
+      if (file.fileType === "pdf") {
+        const text = await extractTextFromPdfUrl(file.fileUrl);
+        setFileContext({ name: file.name, text, type: file.fileType });
+        setSelectedFileContent("");
+      } else {
+        const res = await fetch(file.fileUrl);
+        if (!res.ok) throw new Error(`Failed to load ${file.name}`);
+        const text = await res.text();
+        setFileContext({ name: file.name, text, type: file.fileType });
+        setSelectedFileContent(text);
+      }
+    } catch (error) {
+      console.error("Failed to load file context", error);
+      toast({ title: "File Preview Error", description: `Unable to load ${file.name}`, variant: "destructive" });
+      setFileContext(null);
+      setSelectedFileContent("");
+    } finally {
+      setIsLoadingFileContext(false);
+    }
+  };
+
   const handleSaveNote = () => {
     if (!noteTitle.trim() || !noteContent.trim()) {
       toast({ title: "Error", description: "Title and content required", variant: "destructive" });
@@ -468,30 +571,41 @@ export default function ResearchCollaborationPage() {
     if (file.id.startsWith("chat-node-")) {
       const realChatId = file.id.replace("chat-node-", "");
       setSelectedChatId(realChatId);
+      if (file.projectId) {
+        setActiveProjectId(file.projectId);
+      } else {
+        const matchingChat = chatSessions.find(chat => chat.id === realChatId);
+        if (matchingChat?.projectId) setActiveProjectId(matchingChat.projectId);
+      }
       toast({ title: "Opening Chat", description: `Loading chat: ${file.name}` });
       return;
     }
     
-    // Reset chat selection if selecting a file
-    // setSelectedChatId(null); // Optional: do we want to keep chat open? User said "Race Chat" is a sidebar, so maybe keep it open?
-    // But usually clicking a chat opens it. 
-    // Let's keep it simple: If you click a file, you view the file. Use separate close/open for chat?
-    // The previous UI had chat AS A SIDEBAR always visible (w-96). So we just change the CONTENT of the sidebar.
-    // Yes.
-    
     if (file.type === "file") {
-      setSelectedFile(file)
-      setSelectedFolder(null)
-      setViewMode("file")
+      if (file.projectId) {
+        setActiveProjectId(file.projectId);
+      }
+      if (!file.fileUrl) {
+        toast({ title: "Missing File", description: "This file does not have any content yet." });
+        return;
+      }
+      setSelectedFile(file);
+      setSelectedFolder(null);
+      setViewMode("file");
+      setSelectedChatId(prev => prev); // keep existing chat session active
+      loadFileContext(file);
     }
   }
 
 
   const handleFolderSelect = (folder: ProjectNode) => {
     if (folder.type === "folder") {
-      setSelectedFolder(folder)
-      setSelectedFile(null)
-      setViewMode("folder")
+      if (folder.projectId) setActiveProjectId(folder.projectId);
+      setSelectedFolder(folder);
+      setSelectedFile(null);
+      setFileContext(null);
+      setSelectedFileContent("");
+      setViewMode("folder");
       // Update chat messages for folder context - REMOVED as ResearchChat handles context via props
     }
   }
@@ -499,7 +613,8 @@ export default function ResearchCollaborationPage() {
   const handleBackToOverview = () => {
     setSelectedFolder(null)
     setSelectedFile(null)
-    setViewMode("overview")
+    setFileContext(null)
+    setSelectedFileContent("")
     setViewMode("overview")
     // REMOVED: setChatMessages reset
   }
@@ -1015,7 +1130,24 @@ export default function ResearchCollaborationPage() {
                 <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/10 to-accent/10 rounded-xl blur opacity-75 transition duration-300" />
                 <Card className="relative atlassian-card h-full border-border/50">
                   <CardContent className="p-0 h-[calc(100vh-4rem)] ">
-                    <PDFViewer fileUrl={selectedFile.fileUrl || ""} />
+                    {selectedFile.fileType === "pdf" ? (
+                      <PDFViewer fileUrl={selectedFile.fileUrl || ""} />
+                    ) : (
+                      <div className="h-full w-full overflow-auto p-6">
+                        {isLoadingFileContext ? (
+                          <div className="flex items-center justify-center h-full text-muted-foreground">
+                            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                            Loading content...
+                          </div>
+                        ) : selectedFileContent ? (
+                          <pre className="text-sm whitespace-pre-wrap font-mono">
+                            {selectedFileContent}
+                          </pre>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Select a supported file to preview.</p>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -1046,11 +1178,13 @@ export default function ResearchCollaborationPage() {
 
                   {/* Projects Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {projects.map((project) => (
+                    {projects.map((project) => {
+                      const rootNode = projectStructure.find(node => node.projectId === project.id);
+                      return (
                       <div
                         key={project.id}
                         className="group relative bg-card hover:bg-muted/30 border border-border rounded-xl p-5 hover:border-primary/50 transition-all cursor-pointer shadow-sm hover:shadow-md flex flex-col justify-between min-h-[200px]"
-                        onClick={() => handleFolderSelect(project.rootNode)}
+                        onClick={() => rootNode && handleFolderSelect(rootNode)}
                       >
                         {/* Card Header */}
                         <div className="flex items-start justify-between mb-4">
@@ -1110,7 +1244,7 @@ export default function ResearchCollaborationPage() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                    )})}
 
                     {/* New Project Card */}
                     <div
@@ -1136,13 +1270,14 @@ export default function ResearchCollaborationPage() {
         <div className="w-96 border-l border-border/50 glass-card flex flex-col h-full bg-background/50">
             <ResearchChat 
                 sessionId={selectedChatId || undefined} 
-                projectId={selectedFolder?.id || projects[0]?.id} // Pass current project context
-                onNewChat={() => setSelectedChatId(null)} // Reset to create new
+                projectId={activeProject?.id || projects[0]?.id} 
+                onNewChat={() => setSelectedChatId(null)} 
+                onSessionLinked={(id) => setSelectedChatId(id)}
+                projectContext={activeProjectContext}
+                fileContext={fileContext}
             />
         </div>
       </div>
     </div>
   )
 }
-
-
