@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Progress } from "@/components/ui/progress";
 import GeometricBackground from "@/components/geometric-background";
 import {
   Search,
@@ -28,7 +29,15 @@ import {
   X,
   Share2,
   Bookmark,
-  Quote
+  Quote,
+  AlertCircle,
+  Send,
+  Plus,
+  SlidersHorizontal,
+  Globe,
+  Paperclip,
+  StopCircle,
+  Presentation
 } from "lucide-react";
 import NavigationSidebar from "@/components/navigation-sidebar";
 import {
@@ -42,7 +51,16 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 
 import PDFViewer from "@/components/pdfviewer";
+import { Textarea } from "@/components/ui/textarea";
 import { useUser } from "../context/UserContext";
+import { dataService } from "@/lib/data-service";
+import { Clock } from "lucide-react";
+
+interface RoadmapSection {
+  title: string;
+  description: string;
+  items: { title: string; description: string }[];
+}
 
 interface ResearchItem {
   id: string;
@@ -54,24 +72,293 @@ interface ResearchItem {
   citations?: number;
   funding?: string;
   url?: string;
+  // added for roadmap/news specific layouts if needed, but we can reuse description/title
+  items?: { title: string; description: string }[];
+  amount?: number;
+  agency?: string;
 }
+
+interface ResearchResponse {
+  query: string;
+  stateOfTheArt: any[];
+  recentGroundbreaking: any[];
+  topics: any[];
+  topResearchers: any[];
+  news: any[];
+  funding: any[];
+  roadmap: RoadmapSection[];
+  edgeProblems?: any[];
+}
+
+const ExpandableText = ({ text }: { text: string }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  if (!text || text === "No abstract available.") {
+    return (
+      <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+        {text}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mb-4">
+      <p className={`text-sm text-muted-foreground leading-relaxed ${isExpanded ? '' : 'line-clamp-2'}`}>
+        {text}
+      </p>
+      {text.length > 150 && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+          className="text-primary text-xs font-medium hover:underline mt-1"
+        >
+          {isExpanded ? "Read Less" : "Read More"}
+        </button>
+      )}
+    </div>
+  );
+};
+
+const GeminiInput = ({ value, onChange, onSubmit, isLoading, autoFocus = false }: {
+  value: string;
+  onChange: (val: string) => void;
+  onSubmit: () => void;
+  isLoading: boolean;
+  autoFocus?: boolean;
+}) => {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [showWhiteboard, setShowWhiteboard] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const drawVisualizer = () => {
+    if (!canvasRef.current || !analyserRef.current) return;
+    const canvas = canvasRef.current;
+    const canvasCtx = canvas.getContext("2d");
+    if (!canvasCtx) return;
+    const analyser = analyserRef.current;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+    const draw = () => {
+      animationFrameRef.current = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(dataArray);
+      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+      const barWidth = (canvas.width / bufferLength) * 2.5;
+      let barHeight;
+      let x = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        barHeight = dataArray[i] / 2;
+        canvasCtx.fillStyle = `rgba(180, 180, 255, ${barHeight / 150})`;
+        canvasCtx.fillRect(x, Math.max(0, canvas.height - barHeight), barWidth, barHeight);
+        x += barWidth + 1;
+      }
+    };
+    draw();
+  };
+
+  const handleVoiceInput = async () => {
+    if (!isRecording) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const audioContext = new AudioContextClass();
+        audioContextRef.current = audioContext;
+        const analyser = audioContext.createAnalyser();
+        analyserRef.current = analyser;
+        analyser.fftSize = 256;
+        const source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+        drawVisualizer();
+
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) audioChunksRef.current.push(event.data);
+        };
+        mediaRecorder.onstop = async () => {
+          setIsTranscribing(true);
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          try {
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'audio.webm');
+            const res = await fetch('/api/speech-to-text', { method: 'POST', body: formData });
+            if (res.ok) {
+              const data = await res.json();
+              onChange(value + (value ? " " : "") + data.text);
+            } else {
+              toast({ title: 'Error', description: 'Failed to transcribe audio.', variant: 'destructive' });
+            }
+          } catch (e) {
+            console.error(e);
+            toast({ title: 'Error', description: 'Failed to transcribe audio.', variant: 'destructive' });
+          } finally {
+            setIsTranscribing(false);
+          }
+        };
+        mediaRecorder.start();
+        setIsRecording(true);
+      } catch (error) {
+        console.error("Error accessing microphone:", error);
+        toast({ title: "Microphone Access Denied", description: "Please allow microphone permissions.", variant: "destructive" });
+        setIsRecording(false);
+      }
+    } else {
+      if (mediaRecorderRef.current && isRecording) {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') audioContextRef.current.close();
+      setIsRecording(false);
+    }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      toast({ title: "Files attached", description: `${e.target.files.length} file(s) ready for research.` });
+    }
+  };
+
+  const handleWhiteboard = () => {
+    setShowWhiteboard(!showWhiteboard);
+    toast({ title: showWhiteboard ? "Whiteboard closed" : "Whiteboard", description: showWhiteboard ? "" : "Opening research whiteboard..." });
+  };
+
+  return (
+    <div
+      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+      onDrop={(e) => { e.preventDefault(); setIsDragging(false); toast({ title: "Files attached via drag & drop" }); }}
+      className={`w-full bg-white dark:bg-[#1E1F20] rounded-3xl border border-border/50 shadow-sm flex flex-col relative overflow-hidden transition-all focus-within:ring-1 focus-within:ring-border/50 ${isDragging ? "ring-2 ring-primary ring-offset-2" : ""}`}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 bg-primary/10 backdrop-blur-sm flex items-center justify-center z-10 pointer-events-none">
+          <div className="text-primary font-semibold text-lg flex items-center gap-2">
+            <Paperclip size={20} />
+            Drop files here
+          </div>
+        </div>
+      )}
+
+      <Textarea
+        autoFocus={autoFocus}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
+        placeholder={isTranscribing ? "Transcribing audio..." : "What do you want to research?"}
+        className="w-full bg-transparent text-foreground placeholder-muted-foreground border-none resize-none focus:outline-none focus:ring-0 focus-visible:ring-0 p-4 pb-16 min-h-[120px] text-lg max-h-[200px] overflow-y-auto placeholder:text-muted-foreground/50 shadow-none"
+        style={{ minHeight: '120px' }}
+        disabled={isLoading || isTranscribing}
+      />
+
+      <canvas
+        ref={canvasRef}
+        className={`w-full h-12 absolute bottom-14 left-0 pointer-events-none transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`}
+      />
+
+      <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+        <div className="flex items-center gap-1 sm:gap-2">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileUpload}
+            className="hidden"
+            accept=".pdf,.doc,.docx,.txt,.md,.json,.js,.ts,.tsx,image/*,audio/*,video/*"
+            multiple
+          />
+          <button
+            className="p-2 text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors cursor-pointer"
+            disabled={isLoading || isTranscribing}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Paperclip size={20} />
+          </button>
+          <button
+            className={`p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors cursor-pointer ${isRecording ? "text-destructive" : "text-muted-foreground"}`}
+            disabled={isLoading || isTranscribing}
+            onClick={handleVoiceInput}
+          >
+            {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
+          </button>
+          <button
+            className={`p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors cursor-pointer ${showWhiteboard ? "text-primary bg-primary/10" : "text-muted-foreground"}`}
+            disabled={isLoading || isTranscribing}
+            onClick={handleWhiteboard}
+            title="Whiteboard"
+          >
+            <Presentation size={20} />
+          </button>
+
+
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onSubmit}
+            disabled={!value.trim() && !isLoading && !isTranscribing}
+            className="p-2 h-10 w-10 shrink-0 rounded-full bg-foreground text-background disabled:opacity-50 disabled:bg-muted-foreground/30 disabled:text-muted-foreground transition-all cursor-pointer hover:bg-foreground/90 flex items-center justify-center"
+          >
+            {isLoading ? (
+              <StopCircle size={20} className="animate-pulse" />
+            ) : (
+              <Send size={18} className="-ml-0.5" />
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function KnowledgeDiscoveryPage() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("state-of-art");
+  const [selectedView, setSelectedView] = useState("state-of-art"); // sidebar view
+
+  const [apiData, setApiData] = useState<ResearchResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [statusMessage, setStatusMessage] = useState("");
+  const [hasSearched, setHasSearched] = useState(false);
+
   const [selectedItem, setSelectedItem] = useState<ResearchItem | null>(null);
   const [showPDFViewer, setShowPDFViewer] = useState(false);
   const { user, updateUser } = useUser();
   const { toast } = useToast();
   const [savedItemsIds, setSavedItemsIds] = useState<string[]>([]);
+  const [historyItems, setHistoryItems] = useState<any[]>([]);
+  const [isHistorySidebarOpen, setIsHistorySidebarOpen] = useState(false);
 
-  // Hydrate saved items on mount
-  useState(() => {
-     if (typeof window !== "undefined") {
-        const saved = JSON.parse(localStorage.getItem("saved_papers") || "[]");
-        setSavedItemsIds(saved.map((p: any) => p.id));
-     }
-  });
+  // Hydrate saved items and history on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = JSON.parse(localStorage.getItem("saved_papers") || "[]");
+      setSavedItemsIds(saved.map((p: any) => p.id));
+    }
+
+    // Fetch History
+    const fetchHistory = async () => {
+      // In a real app we'd use user?.id, hard-coding user-1 as per pattern
+      const data = await dataService.getKnowledgeHistory(user?.id || 'user-1');
+      setHistoryItems(data || []);
+    };
+    fetchHistory();
+  }, [user]);
 
   const handleSelectItem = (item: ResearchItem | null) => {
     setSelectedItem(item);
@@ -81,66 +368,53 @@ export default function KnowledgeDiscoveryPage() {
   const handleSavePaper = (item: ResearchItem) => {
     const saved = JSON.parse(localStorage.getItem("saved_papers") || "[]");
     const existingIndex = saved.findIndex((p: any) => p.id === item.id);
-    
+
     if (existingIndex >= 0) {
-        // Remove
-        saved.splice(existingIndex, 1);
-        localStorage.setItem("saved_papers", JSON.stringify(saved));
-        setSavedItemsIds(prev => prev.filter(id => id !== item.id));
-        toast({
-            title: "Removed from library",
-            description: `"${item.title}" has been removed.`,
-        });
-        
-        // If we are currently viewing the saved library, we might want to close the modal if the item is removed? 
-        // Or just let the user see it until they close. 
-        // But we definitely want to update the filtered list if we are in that view.
-        // The filteredData logic below might need a trigger. 
-        // By updating `savedItemsIds`, we can trigger a re-render, but `filteredData` logic 
-        // needs to re-read localStorage or use the state.
+      // Remove
+      saved.splice(existingIndex, 1);
+      localStorage.setItem("saved_papers", JSON.stringify(saved));
+      setSavedItemsIds(prev => prev.filter(id => id !== item.id));
+      toast({
+        title: "Removed from library",
+        description: `"${item.title}" has been removed.`,
+      });
+
+      // If we are currently viewing the saved library, we might want to close the modal if the item is removed? 
+      // Or just let the user see it until they close. 
+      // But we definitely want to update the filtered list if we are in that view.
+      // The filteredData logic below might need a trigger. 
+      // By updating `savedItemsIds`, we can trigger a re-render, but `filteredData` logic 
+      // needs to re-read localStorage or use the state.
     } else {
-        // Add
-        saved.push(item);
-        localStorage.setItem("saved_papers", JSON.stringify(saved));
-        setSavedItemsIds(prev => [...prev, item.id]);
-        toast({
-            title: "Saved to library",
-            description: `"${item.title}" has been saved.`,
-        });
+      // Add
+      saved.push(item);
+      localStorage.setItem("saved_papers", JSON.stringify(saved));
+      setSavedItemsIds(prev => [...prev, item.id]);
+      toast({
+        title: "Saved to library",
+        description: `"${item.title}" has been saved.`,
+      });
     }
   };
 
   const handleShare = (item: ResearchItem) => {
-     const dummyLink = `${window.location.origin}/knowledge?paper=${item.id}`;
-     navigator.clipboard.writeText(dummyLink);
-     toast({
-        title: "Link copied",
-        description: "Shareable link copied to clipboard.",
-     });
+    const dummyLink = `${window.location.origin}/knowledge?paper=${item.id}`;
+    navigator.clipboard.writeText(dummyLink);
+    toast({
+      title: "Link copied",
+      description: "Shareable link copied to clipboard.",
+    });
   };
 
   const handleQuote = (item: ResearchItem) => {
-     const citation = `${item.author} (${new Date(item.date || Date.now()).getFullYear()}). ${item.title}. ${item.category}.`;
-     navigator.clipboard.writeText(citation);
-     toast({
-        title: "Citation copied",
-        description: "APA format citation copied to clipboard.",
-     });
+    const citation = `${item.author} (${new Date(item.date || Date.now()).getFullYear()}). ${item.title}. ${item.category}.`;
+    navigator.clipboard.writeText(citation);
+    toast({
+      title: "Citation copied",
+      description: "APA format citation copied to clipboard.",
+    });
   };
 
-
-  const fieldCategories = [
-    {
-      id: "artificial-intelligence",
-      label: "AI & ML",
-      icon: Brain,
-    },
-    { id: "quantum-computing", label: "Quantum", icon: Atom },
-    { id: "biotechnology", label: "Biotech", icon: Beaker },
-    { id: "materials-science", label: "Materials", icon: Zap },
-    { id: "energy", label: "Energy", icon: Star },
-    { id: "healthcare", label: "Health", icon: Users },
-  ];
 
   const sidebarCategories = [
     {
@@ -179,11 +453,18 @@ export default function KnowledgeDiscoveryPage() {
       dotColor: "bg-indigo-500",
     },
     {
+      id: "edge-problems",
+      label: "Edge Problems",
+      icon: AlertCircle,
+      color: "bg-red-500/20",
+      dotColor: "bg-red-500",
+    },
+    {
       id: "news",
       label: "Latest News",
       icon: Newspaper,
-      color: "bg-red-500/20",
-      dotColor: "bg-red-500",
+      color: "bg-pink-500/20",
+      dotColor: "bg-pink-500",
     },
     {
       id: "saved-library",
@@ -194,457 +475,369 @@ export default function KnowledgeDiscoveryPage() {
     },
   ];
 
-  const researchData: Record<string, ResearchItem[]> = {
-    "state-of-art": [
-      {
-        id: "sota-1",
-        title: "Quantum-Neural Hybrid Computing Breakthrough",
-        description:
-          "Revolutionary integration of quantum and neural computing achieving unprecedented computational efficiency",
-        category: "Quantum AI",
-        date: "2024-12-25",
-        author: "Dr. Elena Vasquez",
-        citations: 892,
-      },
-      {
-        id: "sota-2",
-        title: "Room-Temperature Nuclear Fusion Achievement",
-        description:
-          "First successful controlled nuclear fusion reaction at ambient temperature using novel catalysts",
-        category: "Energy Physics",
-        date: "2024-12-23",
-        author: "Prof. Hiroshi Tanaka",
-        citations: 1247,
-      },
-      {
-        id: "sota-3",
-        title: "AGI Consciousness Emergence",
-        description:
-          "Documentation of the first artificial general intelligence displaying measurable consciousness patterns",
-        category: "Cognitive AI",
-        date: "2024-12-22",
-        author: "Dr. Amelia Richardson",
-        citations: 1689,
-      },
-      {
-        id: "sota-4",
-        title: "Biological Age Reversal Protocol",
-        description:
-          "Comprehensive protocol demonstrating cellular age reversal in human trials",
-        category: "Longevity Science",
-        date: "2024-12-20",
-        author: "Dr. Marcus Chen",
-        citations: 1456,
-      },
-      {
-        id: "sota-5",
-        title: "Universal Cancer Cure Discovery",
-        description:
-          "Breakthrough treatment showing 100% success rate across all cancer types in phase III trials",
-        category: "Medical Breakthrough",
-        date: "2024-12-18",
-        author: "Dr. Sarah Martinez",
-        citations: 2103,
-      },
-    ],
-    "artificial-intelligence": [
-      {
-        id: "1",
-        title: "AGI Milestone Achievement",
-        description:
-          "First AI system to pass comprehensive general intelligence tests",
-        category: "Artificial Intelligence",
-        date: "2024-12-18",
-        author: "Dr. Yann LeCun",
-        citations: 312,
-      },
-      {
-        id: "2",
-        title: "Neural Architecture Search Optimization",
-        description: "Advanced techniques for automated neural network design",
-        category: "Machine Learning",
-        date: "2024-12-10",
-        author: "Prof. Michael Rodriguez",
-        citations: 189,
-      },
-      {
-        id: "3",
-        title: "Large Language Model Efficiency",
-        description:
-          "Breakthrough in reducing computational costs for LLM training",
-        category: "Natural Language Processing",
-        date: "2024-12-15",
-        author: "Dr. Sarah Chen",
-        citations: 245,
-      },
-    ],
-    "machine-learning": [
-      {
-        id: "4",
-        title: "Federated Learning Privacy",
-        description: "Enhanced privacy-preserving techniques in distributed ML",
-        category: "Privacy Technology",
-        date: "2024-12-12",
-        author: "Prof. Lisa Wang",
-        citations: 156,
-      },
-      {
-        id: "5",
-        title: "AutoML for Edge Devices",
-        description:
-          "Automated machine learning optimization for mobile and IoT devices",
-        category: "Edge Computing",
-        date: "2024-12-08",
-        author: "Dr. James Park",
-        citations: 203,
-      },
-    ],
-    "quantum-computing": [
-      {
-        id: "6",
-        title: "Quantum Error Correction Breakthrough",
-        description:
-          "Revolutionary approach to quantum error correction using topological qubits",
-        category: "Quantum Computing",
-        date: "2024-12-15",
-        author: "Dr. Sarah Chen",
-        citations: 245,
-      },
-      {
-        id: "7",
-        title: "Quantum Internet Protocols",
-        description: "Development of secure quantum communication networks",
-        category: "Quantum Networking",
-        date: "2024-12-10",
-        author: "Prof. Michael Zhang",
-        citations: 178,
-      },
-    ],
-    biotechnology: [
-      {
-        id: "8",
-        title: "CRISPR Gene Editing Precision",
-        description:
-          "Enhanced precision in gene editing with minimal off-target effects",
-        category: "Gene Editing",
-        date: "2024-12-08",
-        author: "Dr. Emily Watson",
-        citations: 312,
-      },
-      {
-        id: "9",
-        title: "Personalized Medicine AI",
-        description: "AI-driven approaches to individualized treatment plans",
-        category: "Healthcare AI",
-        date: "2024-12-05",
-        author: "Dr. Jennifer Doudna",
-        citations: 267,
-      },
-    ],
-    "materials-science": [
-      {
-        id: "10",
-        title: "Room Temperature Superconductor",
-        description:
-          "Discovery of materials exhibiting superconductivity at ambient conditions",
-        category: "Superconductors",
-        date: "2024-12-20",
-        author: "Dr. Alex Kumar",
-        citations: 445,
-      },
-      {
-        id: "11",
-        title: "Self-Healing Materials",
-        description:
-          "Advanced polymers that can repair themselves autonomously",
-        category: "Smart Materials",
-        date: "2024-12-14",
-        author: "Prof. Maria Santos",
-        citations: 189,
-      },
-    ],
-    energy: [
-      {
-        id: "12",
-        title: "Fusion Energy Breakthrough",
-        description:
-          "Scientists achieve net energy gain in nuclear fusion reaction",
-        category: "Nuclear Fusion",
-        date: "2024-12-22",
-        author: "Dr. Robert Kim",
-        citations: 523,
-      },
-      {
-        id: "13",
-        title: "Perovskite Solar Cell Efficiency",
-        description:
-          "Record-breaking efficiency in next-generation solar cells",
-        category: "Solar Energy",
-        date: "2024-12-18",
-        author: "Prof. Anna Lee",
-        citations: 298,
-      },
-    ],
-    healthcare: [
-      {
-        id: "14",
-        title: "Alzheimer's Treatment Breakthrough",
-        description:
-          "Clinical trials demonstrate significant cognitive improvement",
-        category: "Neurology",
-        date: "2024-12-21",
-        author: "Dr. Michael Brown",
-        citations: 356,
-      },
-      {
-        id: "15",
-        title: "Cancer Immunotherapy Advances",
-        description:
-          "Novel approaches to enhancing immune system response to cancer",
-        category: "Oncology",
-        date: "2024-12-16",
-        author: "Dr. Rachel Green",
-        citations: 412,
-      },
-    ],
+  // Fetch data from our new streaming API
+  const fetchResearchData = async (query: string) => {
+    if (!query) return;
+    setIsLoading(true);
+    setApiData(null);
+    setProgress(0);
+    setStatusMessage("Initializing deep research agent...");
+    setHasSearched(true);
+
+    try {
+      const res = await fetch("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+      });
+
+      if (!res.ok) {
+        toast({ title: "Error", description: "Failed to start deep research.", variant: "destructive" });
+        setIsLoading(false);
+        return;
+      }
+
+      if (!res.body) return;
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
+        if (done) {
+          buffer += decoder.decode();
+        }
+
+        // SSE chunks are separated by double newlines
+        const events = buffer.split('\n\n');
+
+        // The last element is either an empty string (if buffer ended with \n\n)
+        // or an incomplete event. Keep it in the buffer.
+        buffer = events.pop() || "";
+
+        for (const event of events) {
+          if (!event.trim()) continue;
+
+          // An event can contain multiple lines, we only care about 'data: ' lines
+          const lines = event.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.slice(6);
+              if (dataStr === "[DONE]") continue;
+              try {
+                const payload = JSON.parse(dataStr);
+                if (payload.type === "progress") {
+                  setProgress(payload.percent);
+                  setStatusMessage(payload.message);
+                } else if (payload.type === "result") {
+                  setApiData(payload.data);
+                  setIsLoading(false);
+
+                  // Save query transparently to backend
+                  // In a real app we'd use user?.id, hard-coding user-1 as per backend format
+                  dataService.saveKnowledgeQuery(user?.id || 'user-1', payload.data)
+                    .then(savedResult => {
+                      if (savedResult) {
+                        setHistoryItems(prev => [savedResult, ...prev]);
+                      }
+                    });
+
+                } else if (payload.type === "error") {
+                  toast({ title: "Error", description: payload.message, variant: "destructive" });
+                  setIsLoading(false);
+                }
+              } catch (e) {
+                console.error("Failed to parse SSE payload", dataStr.substring(0, 100), e);
+              }
+            }
+          }
+        }
+
+        if (done) break;
+      }
+    } catch (e) {
+      console.error(e);
+      toast({ title: "Error", description: "Network error while fetching data.", variant: "destructive" });
+      setIsLoading(false);
+    }
   };
 
   const handleSearch = () => {
-    // Search is reactive now, but we can keep this for explicit actions if needed
-    console.log("Searching for:", searchQuery);
+    if (searchQuery.trim()) {
+      fetchResearchData(searchQuery.trim());
+    }
   };
 
-  const allResearchItems = Object.values(researchData).flat();
   let filteredData: ResearchItem[] = [];
 
-  if (searchQuery.trim()) {
-      filteredData = allResearchItems.filter(item => 
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.author?.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-  } else if (selectedCategory === "saved-library") {
-    // Client-side hydration safety check
+  if (selectedView === "saved-library") {
     if (typeof window !== "undefined") {
-       // We use the state to trigger re-renders, but source of truth for THIS list is localStorage
-       // We can just filter all items by savedItemsIds to be safe and reactive
-       // Or re-read localStorage. Let's rely on savedItemsIds state which we keep in sync.
-       // Actually, let's just use the state we created: savedItemsIds is just IDs.
-       // We need the full objects.
-       const saved = JSON.parse(localStorage.getItem("saved_papers") || "[]");
-       filteredData = saved;
-    } else {
-       filteredData = [];
+      const saved = JSON.parse(localStorage.getItem("saved_papers") || "[]");
+      filteredData = saved;
     }
-  } else {
-    filteredData = researchData[selectedCategory] || [];
+  } else if (apiData) {
+    // Map dynamically based on sidebar category
+    switch (selectedView) {
+      case "state-of-art":
+        filteredData = apiData.stateOfTheArt.map((p: any) => ({
+          id: p.id, title: p.title, description: p.abstract || "No abstract available.", category: "Paper", date: `${p.year}-01-01`, author: p.authors?.[0]?.name, citations: p.citationCount, url: p.url
+        }));
+        break;
+      case "recent-groundbreaks":
+        filteredData = apiData.recentGroundbreaking.map((p: any) => ({
+          id: p.id, title: p.title, description: p.abstract || "No abstract available.", category: "Breakthrough", date: `${p.year}-01-01`, author: p.authors?.[0]?.name, citations: p.citationCount, url: p.url
+        }));
+        break;
+      case "topics-to-research":
+        filteredData = apiData.topics.map((t: any) => ({
+          id: t.id, title: t.name, description: t.description || "Sub-field topic.", category: "Topic", citations: Math.floor(t.relevanceScore * 100)
+        }));
+        break;
+      case "top-researchers":
+        filteredData = apiData.topResearchers.map((r: any) => ({
+          id: r.id, title: r.name, description: r.affiliation || "Independent", category: "Researcher", citations: r.totalCitations, url: r.profileUrl
+        }));
+        break;
+      case "news":
+        filteredData = apiData.news.map((n: any) => ({
+          id: n.id, title: n.title, description: n.snippet || "News article", category: n.sourceName || "News", date: n.publishedAt, url: n.url
+        }));
+        break;
+      case "roadmap":
+        filteredData = apiData.roadmap.map((r: any, i: number) => ({
+          id: `roadmap-${i}`, title: r.title, description: r.description, category: "Roadmap Stage", items: r.items
+        }));
+        break;
+      case "edge-problems":
+        filteredData = apiData.edgeProblems?.map((ep: any, i: number) => ({
+          id: `edge-${i}`, title: ep.title, description: ep.description, category: ep.relevance
+        })) || [];
+        break;
+      default:
+        filteredData = [];
+    }
   }
 
-  const displayTitle = searchQuery.trim() 
-    ? `Search Results for "${searchQuery}"`
-    : fieldCategories.find((c) => c.id === selectedCategory)?.label || "Research";
-
-
-  const selectedCategoryData = researchData[selectedCategory] || [];
+  const displayTitle = apiData ? `Results for "${apiData.query}"` : `Results for "${searchQuery}"`;
 
   return (
-    <div className="h-screen overflow-y-hidden flex relative bg-background/50">
-      <div className="dark:block hidden fixed inset-0 z-0 pointer-events-none">
+    <div className="h-screen overflow-y-hidden flex relative bg-background/50 dark:bg-[#181818]">
+      <div className="dark:hidden block fixed inset-0 z-0 pointer-events-none">
         <GeometricBackground variant="orb" />
       </div>
+
       <NavigationSidebar />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col relative z-10">
-        {/* Header */}
-        <div className="p-6 bg-background border-b border-border">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-4xl font-bold text-foreground mb-3 tracking-tight">
-                Knowledge Discovery
-              </h1>
-              <p className="text-muted-foreground text-lg">
-                Explore cutting-edge research and breakthrough discoveries
-              </p>
-            </div>
+      {/* History Sidebar */}
+      <div
+        className={`bg-[#f9f9f9] dark:bg-[#1e1f20] border-r border-border/50 transition-all duration-300 flex flex-col ${isHistorySidebarOpen ? "w-64 opacity-100" : "w-0 opacity-0 overflow-hidden"
+          }`}
+      >
+        <div className="p-4 border-b border-border/50 flex items-center justify-between min-w-[16rem]">
+          <h3 className="font-semibold text-foreground flex items-center gap-2">
+            <Clock size={18} className="text-primary" />
+            Previous Lookups
+          </h3>
+          <button
+            onClick={() => setIsHistorySidebarOpen(false)}
+            className="p-1 hover:bg-muted rounded-md text-muted-foreground"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <ScrollArea className="flex-1 min-w-[16rem]">
+          <div className="p-3 space-y-2">
+            {historyItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No history found.</p>
+            ) : (
+              historyItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setApiData(item);
+                    setSearchQuery(item.query);
+                    setHasSearched(true);
+                    setSelectedView("state-of-art");
+                  }}
+                  className="w-full text-left p-3 rounded-lg hover:bg-muted text-sm transition-colors border border-transparent hover:border-border/50 group"
+                >
+                  <p className="font-medium text-foreground line-clamp-2 leading-tight group-hover:text-primary transition-colors">
+                    {item.query}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1.5 flex items-center justify-between">
+                    <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                  </p>
+                </button>
+              ))
+            )}
           </div>
+        </ScrollArea>
+      </div>
 
-          {/* Search Bar */}
-          {/* <div className="relative max-w-2xl">
-            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <Search className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <Input
-              type="text"
-              placeholder="Search research papers, topics, or authors..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              className="pl-12 pr-14 py-4 text-base bg-input border-border transition-fast"
-            />
-            <div className="absolute inset-y-0 right-0 pr-4 flex items-center">
-              <button
-                onClick={handleSearch}
-                className="btn-ghost text-muted-foreground hover:text-foreground h-8 w-8 p-0"
-              >
-                <Mic className="h-4 w-4 text-black" />
-              </button>
-            </div>
-          </div> */}
-          <div className="max-w-2xl w-full h-12 px-4 flex items-center gap-3 rounded-lg border border-border bg-input">
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col relative z-10 overflow-hidden">
 
-            {/* Left Search Icon */}
-            <Search className="h-5 w-5 text-muted-foreground" />
-
-            {/* Input */}
-            <input
-              type="text"
-              placeholder="Search research papers, topics, or authors..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-              className="
-                flex-1
-                bg-transparent
-                outline-none
-                border-none
-                text-base
-                placeholder:text-muted-foreground
-              "
-              style={{
-                boxShadow: "none",
-                WebkitBoxShadow: "none",
-                outline: "none",
-                border: "none",
-              }}
-
-            />
-
-            {/* Right Mic Button */}
+        {/* Toggle History Button (shows when sidebar closed) */}
+        {!isHistorySidebarOpen && (
+          <div className="absolute top-4 left-4 z-20">
             <button
-              onClick={handleSearch}
-              className="h-8 w-8 flex items-center justify-center hover:text-foreground text-muted-foreground"
+              onClick={() => setIsHistorySidebarOpen(true)}
+              className="p-2 bg-background/80 backdrop-blur-md border border-border/50 rounded-lg shadow-sm hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-all flex items-center gap-2 group"
+              title="View History"
             >
-              <Mic className="h-4 w-4 text-black" />
+              <Clock size={16} className="group-hover:text-primary transition-colors" />
+              <span className="text-sm font-medium">History</span>
             </button>
           </div>
+        )}
 
-        </div>
-
-        <div className="flex-1 flex">
+        <div className="flex-1 flex overflow-hidden">
           {/* Main Content Area */}
-          <div className="flex-1 px-8 py-6">
-            {/* Category Filters */}
-            <div className="flex flex-wrap gap-3 mb-6">
-              {fieldCategories.map((category) => {
-                const Icon = category.icon;
-                const isSelected = selectedCategory === category.id;
-                return (
-                  <button
-                    key={category.id}
-                    onClick={() => setSelectedCategory(category.id)}
-                    className={`flex items-center gap-3 px-4 py-3 transition-fast focus-ring ${isSelected ? "btn-primary" : "btn-secondary"
-                      }`}
-                  >
-                    <Icon
-                      size={18}
-                      className={
-                        isSelected
-                          ? "text-primary-foreground"
-                          : "text-muted-foreground"
-                      }
-                    />
-                    <span className="font-medium text-sm">
-                      {category.label}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+          <div className="flex-1 flex flex-col px-8 pt-6 pb-6 relative overflow-hidden">
+            {hasSearched ? (
+              <>
+                {/* Content Display */}
+                <div className="mb-4 shrink-0 flex items-center">
+                  <h2 className={`text-lg font-semibold text-foreground ${!isHistorySidebarOpen ? 'ml-32' : ''}`}>
+                    {displayTitle}
+                  </h2>
+                </div>
 
-            {/* Content Display */}
-            <div>
-              <h2 className="text-2xl font-semibold text-foreground mb-6">
-                {displayTitle}
-              </h2>
-
-              <ScrollArea className="h-[calc(100vh-380px)]">
-                <div className="space-y-6 pr-2">
-                  {filteredData.map((item) => (
-                    <div key={item.id} className="group" onClick={() => handleSelectItem(item)}>
-                      <div className="glass-card hover:bg-muted/40 transition-all cursor-pointer p-0 rounded-2xl border border-border/40 hover:border-primary/30 shadow-sm hover:shadow-lg group-hover:-translate-y-0.5 duration-300">
-                        <div className="p-5">
-                          <div className="flex items-start justify-between mb-3">
-                              <div className="flex-1 min-w-0 pr-4">
-                                <div className="flex items-center gap-2 mb-2">
-                                  {item.category && (
-                                    <Badge
-                                      variant="secondary"
-                                      className="px-2 py-0.5 text-[10px] font-medium bg-primary/10 text-primary border-transparent h-5"
-                                    >
-                                      {item.category}
-                                    </Badge>
-                                  )}
-                                  {item.url && <ExternalLink size={12} className="text-muted-foreground opacity-50" />}
-                                </div>
-                                <h3 className="text-lg font-semibold text-foreground leading-snug group-hover:text-primary transition-colors">
-                                  {item.title}
-                                </h3>
-                              </div>
-                              {/* <button className="btn-ghost text-muted-foreground hover:text-primary h-8 w-8 p-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity">
-                                <ChevronRight size={18} />
-                              </button> */}
-                          </div>
-                          
-                          <p className="text-sm text-muted-foreground leading-relaxed line-clamp-2 mb-4">
-                             {item.description}
-                          </p>
-
-                          <div className="flex items-center justify-between pt-2 border-t border-border/30">
-                             <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                                {item.author && (
-                                  <div className="flex items-center gap-1.5 has-tooltip">
-                                     <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">
-                                        {item.author[0]}
-                                     </div>
-                                     <span className="truncate max-w-[100px]">{item.author}</span>
-                                  </div>
-                                )}
-                                {item.date && (
-                                   <span>{new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                                )}
-                             </div>
-                             
-                             {item.citations && (
-                                <div className="flex items-center gap-1 text-xs font-medium text-amber-500/80 bg-amber-500/10 px-2 py-0.5 rounded-full">
-                                   <Star size={10} className="fill-current" />
-                                   <span>{item.citations}</span>
-                                </div>
-                             )}
-                          </div>
+                <ScrollArea className="flex-1">
+                  <div className="pb-4">
+                    {isLoading ? (
+                      <div className="flex flex-col items-center justify-center space-y-8 py-20 text-muted-foreground w-full max-w-md mx-auto">
+                        <div className="relative mb-6">
+                          <Atom className="animate-spin text-primary w-20 h-20" />
+                          <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full opacity-50"></div>
+                        </div>
+                        <div className="w-full max-w-sm space-y-4 text-center">
+                          <Progress value={progress === 0 ? 5 : progress} className="w-full h-3 bg-primary/20 rounded-full" />
+                          <p className="text-sm font-medium animate-pulse text-foreground/80">{statusMessage}</p>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    ) : (
+                      <div className="space-y-6 pr-2">
+                        {filteredData.map((item) => (
+                          <div key={item.id} className="group" onClick={() => handleSelectItem(item)}>
+                            <div className="glass-card hover:bg-muted/40 transition-all cursor-pointer p-0 rounded-2xl border border-border/40 hover:border-primary/30 shadow-sm hover:shadow-lg group-hover:-translate-y-0.5 duration-300">
+                              <div className="p-5">
+                                <div className="flex items-start justify-between mb-3">
+                                  <div className="flex-1 min-w-0 pr-4">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      {item.category && (
+                                        <Badge
+                                          variant="secondary"
+                                          className="px-2 py-0.5 text-[10px] font-medium bg-primary/10 text-primary border-transparent h-5"
+                                        >
+                                          {item.category}
+                                        </Badge>
+                                      )}
+                                      {item.url && <ExternalLink size={12} className="text-muted-foreground opacity-50" />}
+                                    </div>
+                                    <h3 className="text-lg font-semibold text-foreground leading-snug group-hover:text-primary transition-colors">
+                                      {item.title}
+                                    </h3>
+                                  </div>
+                                </div>
+
+                                <ExpandableText text={item.description} />
+
+                                {/* Roadmap Items Rendering specifically for Roadmap Category */}
+                                {item.items && item.items.length > 0 && (
+                                  <div className="mt-4 space-y-3 pl-4 border-l-2 border-primary/20">
+                                    {item.items.map((subitem, idx) => (
+                                      <div key={idx} className="text-sm">
+                                        <span className="font-semibold text-foreground">{subitem.title}:</span> <span className="text-muted-foreground">{subitem.description}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {!item.items && (
+                                  <div className="flex items-center justify-between pt-2 border-t border-border/30">
+                                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                      {item.author && (
+                                        <div className="flex items-center gap-1.5 has-tooltip">
+                                          <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">
+                                            {item.author[0]}
+                                          </div>
+                                          <span className="truncate max-w-[100px]">{item.author}</span>
+                                        </div>
+                                      )}
+                                      {item.date && (
+                                        <span>{new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                                      )}
+                                    </div>
+
+                                    {item.citations !== undefined && (
+                                      <div className="flex items-center gap-1 text-xs font-medium text-amber-500/80 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                                        <Star size={10} className="fill-current" />
+                                        <span>{item.citations}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {!isLoading && filteredData.length === 0 && (
+                          <div className="text-center py-10 text-muted-foreground">
+                            No data found for this category.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </>
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center text-center max-w-3xl mx-auto w-full animate-in fade-in duration-700 pb-20">
+                <div className="w-16 h-16 bg-primary/5 rounded-3xl flex items-center justify-center mb-6 shadow-inner border border-primary/10">
+                  <Atom className="w-8 h-8 text-primary/60" />
                 </div>
-              </ScrollArea>
+                <h1 className="text-3xl font-extrabold text-foreground/90 mb-4 tracking-tight">
+                  Start Your Research
+                </h1>
+                <p className="text-muted-foreground text-base leading-relaxed max-w-xl">
+                  Define your complex problem statement below. Our autonomous, multi-agent system will initiate a comprehensive knowledge discovery process, scanning global databases to synthesize and map actionable breakthroughs in real-time.
+                </p>
+              </div>
+            )}
+
+            {/* Gemini Input Anchored at Bottom */}
+            <div className="mt-4 shrink-0 w-full max-w-4xl mx-auto flex flex-col items-center">
+              <GeminiInput
+                value={searchQuery}
+                onChange={setSearchQuery}
+                onSubmit={handleSearch}
+                isLoading={isLoading}
+                autoFocus={true}
+              />
+
             </div>
           </div>
 
           {/* Right Sidebar - Category Navigation */}
-          <div className="w-64 bg-background/40 backdrop-blur-xl border-l border-border/50 p-6 relative z-10 flex flex-col h-full">
+          <div className="w-64 bg-[#f9f9f9] dark:bg-[#1e1f20] dark text-foreground border-l border-white/5 p-6 relative z-10 flex flex-col h-full">
             <h3 className="text-xl font-semibold text-foreground mb-6">
               Research Categories
             </h3>
             <div className="space-y-2">
               {sidebarCategories.map((category) => {
                 const Icon = category.icon;
-                const isSelected = selectedCategory === category.id;
+                const isSelected = selectedView === category.id;
                 return (
                   <button
                     key={category.id}
-                    onClick={() => setSelectedCategory(category.id)}
+                    onClick={() => setSelectedView(category.id)}
                     className={`w-full flex items-center gap-3 p-4 rounded-lg text-left transition-all duration-200 group ${isSelected
                       ? "bg-primary/10 text-primary border border-primary/20 shadow-sm"
                       : "bg-card/50 hover:bg-card hover:border-primary/20 text-foreground border border-transparent"
@@ -671,133 +864,134 @@ export default function KnowledgeDiscoveryPage() {
           </div>
         </div>
       </div>
+
       {/* Custom Modal for Details */}
       {selectedItem && !showPDFViewer && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-          <div 
-              className="absolute inset-0 bg-background/60 backdrop-blur-md transition-opacity" 
-              onClick={() => handleSelectItem(null)}
+          <div
+            className="absolute inset-0 bg-background/60 backdrop-blur-md transition-opacity"
+            onClick={() => handleSelectItem(null)}
           />
           <div className="relative w-full max-w-4xl bg-card/95 backdrop-blur-3xl rounded-3xl shadow-2xl border border-border/50 overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
-             
-             {/* Modal Header Image/Gradient Placeholder */}
-             <div className="h-32 bg-gradient-to-r from-primary/10 via-primary/5 to-background relative border-b border-border/50">
-                <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="absolute top-4 right-4 rounded-full bg-background/20 hover:bg-background/40 text-foreground"
-                    onClick={() => handleSelectItem(null)}
-                >
-                    <X size={18} />
-                </Button>
-                <div className="absolute bottom-6 left-8">
-                    <Badge variant="outline" className="bg-background/50 backdrop-blur text-foreground border-border">
-                        {selectedItem.category}
-                    </Badge>
+
+            {/* Modal Header Image/Gradient Placeholder */}
+            <div className="h-32 bg-gradient-to-r from-primary/10 via-primary/5 to-background relative border-b border-border/50">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute top-4 right-4 rounded-full bg-background/20 hover:bg-background/40 text-foreground"
+                onClick={() => handleSelectItem(null)}
+              >
+                <X size={18} />
+              </Button>
+              <div className="absolute bottom-6 left-8">
+                <Badge variant="outline" className="bg-background/50 backdrop-blur text-foreground border-border">
+                  {selectedItem.category}
+                </Badge>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 pt-6">
+              <div className="flex items-start justify-between gap-6 mb-6">
+                <h2 className="text-3xl font-bold text-foreground leading-tight">
+                  {selectedItem.title}
+                </h2>
+                {selectedItem.date && (
+                  <div className="text-right shrink-0">
+                    <div className="text-sm font-medium text-muted-foreground">Published</div>
+                    <div className="text-sm text-foreground font-mono">{new Date(selectedItem.date).toLocaleDateString()}</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-6 pb-8 border-b border-border/40 mb-8">
+                {selectedItem.author && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                      {selectedItem.author[0]}
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Author</div>
+                      <div className="font-semibold text-foreground">{selectedItem.author}</div>
+                    </div>
+                  </div>
+                )}
+                {selectedItem.citations !== undefined && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
+                      <Star size={18} className="fill-current" />
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Impact</div>
+                      <div className="font-semibold text-foreground">{selectedItem.citations} Citations</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="md:col-span-2 space-y-6">
+                  <div className="prose dark:prose-invert max-w-none">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                      <Sparkles size={16} className="text-primary" />
+                      Abstract
+                    </h3>
+                    <p className="text-muted-foreground leading-relaxed text-lg">
+                      {selectedItem.description}
+                    </p>
+                    <p className="text-muted-foreground/60 text-sm mt-4 italic">
+                      Full content access requires subscription or institutional login. This preview is generated from open metadata.
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <Button size="lg" className="flex-1 bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all font-semibold" onClick={() => setShowPDFViewer(true)}>
+                      <BookOpen size={18} className="mr-2" />
+                      Read Paper
+                    </Button>
+                    <Button size="lg" variant="secondary" className="flex-1 bg-secondary/50 hover:bg-secondary/70" onClick={() => handleSavePaper(selectedItem)}>
+                      <Bookmark size={18} className={`mr-2 ${savedItemsIds.includes(selectedItem.id) ? "fill-current text-purple-500" : ""}`} />
+                      {savedItemsIds.includes(selectedItem.id) ? "Remove" : "Save Library"}
+                    </Button>
+                  </div>
                 </div>
-             </div>
 
-             <div className="flex-1 overflow-y-auto p-8 pt-6">
-                 <div className="flex items-start justify-between gap-6 mb-6">
-                     <h2 className="text-3xl font-bold text-foreground leading-tight">
-                        {selectedItem.title}
-                     </h2>
-                     {selectedItem.date && (
-                        <div className="text-right shrink-0">
-                           <div className="text-sm font-medium text-muted-foreground">Published</div>
-                           <div className="text-sm text-foreground font-mono">{new Date(selectedItem.date).toLocaleDateString()}</div>
-                        </div>
-                     )}
-                 </div>
-
-                 <div className="flex items-center gap-6 pb-8 border-b border-border/40 mb-8">
-                     {selectedItem.author && (
-                        <div className="flex items-center gap-3">
-                           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                              {selectedItem.author[0]}
-                           </div>
-                           <div>
-                              <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Author</div>
-                              <div className="font-semibold text-foreground">{selectedItem.author}</div>
-                           </div>
-                        </div>
-                     )}
-                     {selectedItem.citations && (
-                        <div className="flex items-center gap-3">
-                           <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500">
-                              <Star size={18} className="fill-current" />
-                           </div>
-                           <div>
-                              <div className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Impact</div>
-                              <div className="font-semibold text-foreground">{selectedItem.citations} Citations</div>
-                           </div>
-                        </div>
-                     )}
-                 </div>
-
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    <div className="md:col-span-2 space-y-6">
-                       <div className="prose dark:prose-invert max-w-none">
-                          <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                             <Sparkles size={16} className="text-primary" />
-                             Abstract
-                          </h3>
-                          <p className="text-muted-foreground leading-relaxed text-lg">
-                             {selectedItem.description}
-                          </p>
-                          <p className="text-muted-foreground/60 text-sm mt-4 italic">
-                             Full content access requires subscription or institutional login. This preview is generated from open metadata.
-                          </p>
-                       </div>
-
-                       <div className="flex gap-3 pt-4">
-                          <Button size="lg" className="flex-1 bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all font-semibold" onClick={() => setShowPDFViewer(true)}>
-                             <BookOpen size={18} className="mr-2" /> 
-                             Read Paper
-                          </Button>
-                          <Button size="lg" variant="secondary" className="flex-1 bg-secondary/50 hover:bg-secondary/70" onClick={() => handleSavePaper(selectedItem)}>
-                             <Bookmark size={18} className={`mr-2 ${savedItemsIds.includes(selectedItem.id) ? "fill-current text-purple-500" : ""}`} />
-                             {savedItemsIds.includes(selectedItem.id) ? "Remove" : "Save Library"}
-                          </Button>
-                       </div>
+                <div className="space-y-4">
+                  <div className="p-5 rounded-2xl bg-muted/30 border border-border/40">
+                    <h4 className="font-medium text-sm text-foreground mb-3 flex items-center gap-2">
+                      <Zap size={14} className="text-yellow-500" />
+                      Key Concepts
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {["Neural Networks", "Optimization", "Algorithms", "Data Efficiency"].map(tag => (
+                        <Badge key={tag} variant="secondary" className="bg-background/80 hover:bg-background transition-colors cursor-default">
+                          {tag}
+                        </Badge>
+                      ))}
                     </div>
+                  </div>
 
-                    <div className="space-y-4">
-                        <div className="p-5 rounded-2xl bg-muted/30 border border-border/40">
-                             <h4 className="font-medium text-sm text-foreground mb-3 flex items-center gap-2">
-                                <Zap size={14} className="text-yellow-500" />
-                                Key Concepts
-                             </h4>
-                             <div className="flex flex-wrap gap-2">
-                                {["Neural Networks", "Optimization", "Algorithms", "Data Efficiency"].map(tag => (
-                                   <Badge key={tag} variant="secondary" className="bg-background/80 hover:bg-background transition-colors cursor-default">
-                                      {tag}
-                                   </Badge>
-                                ))}
-                             </div>
-                        </div>
+                  <div className="p-5 rounded-2xl bg-muted/30 border border-border/40">
+                    <h4 className="font-medium text-sm text-foreground mb-3 flex items-center gap-2">
+                      <DollarSign size={14} className="text-green-500" />
+                      Funding
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      Supported by <span className="text-foreground font-medium">National Science Foundation</span> grant #2024-AI-992.
+                    </p>
+                  </div>
 
-                        <div className="p-5 rounded-2xl bg-muted/30 border border-border/40">
-                             <h4 className="font-medium text-sm text-foreground mb-3 flex items-center gap-2">
-                                <DollarSign size={14} className="text-green-500" />
-                                Funding
-                             </h4>
-                             <p className="text-xs text-muted-foreground">
-                                Supported by <span className="text-foreground font-medium">National Science Foundation</span> grant #2024-AI-992.
-                             </p>
-                        </div>
-
-                        <div className="flex gap-2">
-                            <Button variant="outline" className="flex-1 h-10 border-border/50" onClick={() => handleShare(selectedItem)}>
-                                <Share2 size={14} />
-                            </Button>
-                            <Button variant="outline" className="flex-1 h-10 border-border/50" onClick={() => handleQuote(selectedItem)}>
-                                <Quote size={14} />
-                            </Button>
-                        </div>
-                    </div>
-                 </div>
-             </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="flex-1 h-10 border-border/50" onClick={() => handleShare(selectedItem)}>
+                      <Share2 size={14} />
+                    </Button>
+                    <Button variant="outline" className="flex-1 h-10 border-border/50" onClick={() => handleQuote(selectedItem)}>
+                      <Quote size={14} />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -805,13 +999,13 @@ export default function KnowledgeDiscoveryPage() {
       {/* PDF Viewer Overlay */}
       {showPDFViewer && selectedItem && (
         <div className="fixed inset-0 z-[200] bg-background">
-            <div className="flex items-center justify-between p-4 border-b">
-                <h3 className="font-semibold">{selectedItem.title}</h3>
-                <Button variant="ghost" onClick={() => setShowPDFViewer(false)}>Close</Button>
-            </div>
-            <div className="h-[calc(100vh-64px)]">
-               <PDFViewer fileUrl={selectedItem.url || "https://pdftron.s3.amazonaws.com/downloads/pl/demo-annotated.pdf"} />
-            </div>
+          <div className="flex items-center justify-between p-4 border-b">
+            <h3 className="font-semibold">{selectedItem.title}</h3>
+            <Button variant="ghost" onClick={() => setShowPDFViewer(false)}>Close</Button>
+          </div>
+          <div className="h-[calc(100vh-64px)]">
+            <PDFViewer fileUrl={selectedItem.url || "https://pdftron.s3.amazonaws.com/downloads/pl/demo-annotated.pdf"} />
+          </div>
         </div>
       )}
     </div>

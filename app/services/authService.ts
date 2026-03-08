@@ -7,7 +7,7 @@ export const authService = {
   },
 
   login: async (data: { email: string; password: string }) => {
-    return api.post("/auth/login", data);
+    return api.post("/auth/signin", data);
   },
 
   me: async (): Promise<User | null> => {

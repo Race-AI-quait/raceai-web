@@ -13,7 +13,9 @@
     "@ai-sdk/google": "^3.0.1",
     "@ai-sdk/mistral": "^3.0.1",
     "@ai-sdk/openai": "2.0.30",
+    "@ai-sdk/react": "^3.0.107",
     "@hookform/resolvers": "^3.10.0",
+    "@monaco-editor/react": "^4.7.0",
     "@pdftron/webviewer": "^11.8.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
@@ -88,6 +90,7 @@
     "use-sound": "^5.0.0",
     "uuid": "^13.0.0",
     "vaul": "^0.9.9",
+    "xml2js": "^0.6.2",
     "zod": "3.25.76"
   },
   "devDependencies": {
@@ -95,6 +98,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/xml2js": "^0.4.14",
     "autoprefixer": "^10.4.21",
     "eslint": "9.39.2",
     "eslint-config-next": "16.1.6",

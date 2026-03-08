@@ -1,4 +1,5 @@
 import { ChatSession } from '@/db/schema';
+import { api } from './api';
 
 const USE_MOCK_DB = process.env.NEXT_PUBLIC_USE_MOCK_DB === 'true';
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001';
@@ -140,5 +141,43 @@ export const dataService = {
 
   async createProject(projectConfig: any) {
     throw new Error("Projects not supported yet");
+  },
+
+  // --- Knowledge History ---
+  async saveKnowledgeQuery(userId: string, data: any) {
+    if (USE_MOCK_DB) return data;
+
+    const payload = {
+      userId,
+      query: data.query,
+      stateOfTheArt: data.stateOfTheArt,
+      recentGroundbreaking: data.recentGroundbreaking,
+      topics: data.topics,
+      topResearchers: data.topResearchers,
+      news: data.news,
+      funding: data.funding,
+      roadmap: data.roadmap,
+      edgeProblems: data.edgeProblems,
+    };
+
+    try {
+      return await api.post('/knowledge', payload);
+    } catch (error: any) {
+      console.error(`Failed to save knowledge history:`, error);
+      return null;
+    }
+  },
+
+  async getKnowledgeHistory(userId: string) {
+    if (USE_MOCK_DB) return [];
+
+    try {
+      // Use api.get instead of raw fetch
+      return await api.get(`/knowledge/user/${userId}`);
+    } catch (err) {
+      // Supress the console error output to avoid Next.js overlay popup if it's just a network absence
+      console.warn("Could not fetch knowledge history, continuing with empty history.");
+      return [];
+    }
   }
 };

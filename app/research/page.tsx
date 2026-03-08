@@ -150,32 +150,32 @@ export default function ResearchCollaborationPage() {
   const [isRecording, setIsRecording] = useState(false);
 
   const handleVoiceInput = async () => {
-        if (!isRecording) {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: true,
-                });
-                setIsRecording(true);
+    if (!isRecording) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        setIsRecording(true);
 
-                // Mock recording - in real app, hook to SpeechRecognition
-                setTimeout(() => {
-                    setIsRecording(false);
-                    stream.getTracks().forEach((track) => track.stop());
-                    setChatInput(prev => prev + " [Voice Input Test]"); 
-                    toast({ title: "Voice Input", description: "Added voice text to chat." });
-                }, 2000);
-            } catch (error) {
-                console.error("Error accessing microphone:", error);
-                toast({ title: "Error", description: "Microphone access denied.", variant: "destructive" });
-            }
-        } else {
-            setIsRecording(false);
-        }
+        // Mock recording - in real app, hook to SpeechRecognition
+        setTimeout(() => {
+          setIsRecording(false);
+          stream.getTracks().forEach((track) => track.stop());
+          setChatInput(prev => prev + " [Voice Input Test]");
+          toast({ title: "Voice Input", description: "Added voice text to chat." });
+        }, 2000);
+      } catch (error) {
+        console.error("Error accessing microphone:", error);
+        toast({ title: "Error", description: "Microphone access denied.", variant: "destructive" });
+      }
+    } else {
+      setIsRecording(false);
+    }
   };
 
   // Filter logic
   const projectStructure: ProjectNode[] = projects.map(p => {
-         // Clone the rootNode to avoid mutating the context state directly
+    // Clone the rootNode to avoid mutating the context state directly
     const rootNodeClone = JSON.parse(JSON.stringify(p.rootNode));
 
     // Inject "Chats" folder if it doesn't exist
@@ -203,20 +203,20 @@ export default function ResearchCollaborationPage() {
   });
 
   const filteredStructure = projectStructure.map(node => {
-        if (!searchQuery) return node;
-        // Simple 1-level filter for now, or recursive if needed. 
-        // Assuming projects are root nodes.
-        const matchesName = node.name.toLowerCase().includes(searchQuery.toLowerCase());
-        const filteredChildren = node.children?.filter(child => child.name.toLowerCase().includes(searchQuery.toLowerCase()));
-        
-        if (matchesName) return node;
-        if (filteredChildren && filteredChildren.length > 0) {
-            return {
-                ...node,
-                children: filteredChildren
-            }
-        }
-        return null;
+    if (!searchQuery) return node;
+    // Simple 1-level filter for now, or recursive if needed. 
+    // Assuming projects are root nodes.
+    const matchesName = node.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const filteredChildren = node.children?.filter(child => child.name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    if (matchesName) return node;
+    if (filteredChildren && filteredChildren.length > 0) {
+      return {
+        ...node,
+        children: filteredChildren
+      }
+    }
+    return null;
   }).filter(Boolean) as ProjectNode[];
 
 
@@ -869,7 +869,7 @@ export default function ResearchCollaborationPage() {
 
   return (
     <div
-      className="h-screen overflow-y-hidden flex bg-gradient-to-br from-blue-100 via-blue-50 to-violet-50/20 dark:from-slate-950 dark:via-blue-950/40 dark:to-slate-900 relative"
+      className="h-screen overflow-y-hidden flex bg-gradient-to-br from-blue-100 via-blue-50 to-violet-50/20 dark:bg-[#181818] dark:bg-none relative"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -887,7 +887,7 @@ export default function ResearchCollaborationPage() {
 
       <main className="flex-1 flex overflow-hidden">
         {/* Project Sidebar */}
-        <div className="w-80 border-r bg-card/30 backdrop-blur-xl flex flex-col z-20">
+        <div className="w-80 border-r bg-[#f9f9f9] dark:bg-[#1e1f20] dark text-foreground flex flex-col z-20">
           <div className="p-4 border-b bg-card/50">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-lg flex items-center gap-2">
@@ -905,8 +905,8 @@ export default function ResearchCollaborationPage() {
             </div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input 
-                placeholder="Search files..." 
+              <Input
+                placeholder="Search files..."
                 className="pl-9 h-9 bg-background/50 border-input/50 focus:bg-background transition-all"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -915,192 +915,192 @@ export default function ResearchCollaborationPage() {
           </div>
 
           <ScrollArea className="flex-1 px-2 py-3">
-             {renderProjectTree(filteredStructure)}
+            {renderProjectTree(filteredStructure)}
           </ScrollArea>
 
           <div className="p-4 border-t bg-card/50">
-             <div className="text-xs text-muted-foreground font-medium flex items-center justify-between">
-                <span>Storage</span>
-                <span>2.4 GB / 5 GB</span>
-             </div>
-             <div className="h-1.5 w-full bg-primary/10 rounded-full mt-2 overflow-hidden">
-                <div className="h-full bg-primary w-[48%] rounded-full" />
-             </div>
+            <div className="text-xs text-muted-foreground font-medium flex items-center justify-between">
+              <span>Storage</span>
+              <span>2.4 GB / 5 GB</span>
+            </div>
+            <div className="h-1.5 w-full bg-primary/10 rounded-full mt-2 overflow-hidden">
+              <div className="h-full bg-primary w-[48%] rounded-full" />
+            </div>
           </div>
         </div>
 
         {/* Main Workspace Area */}
         <div className="flex-1 flex flex-col min-w-0 bg-background/50 relative overflow-hidden">
-            {/* Top Toolbar */}
-            <div className="h-14 border-b bg-card/30 backdrop-blur-xl flex items-center justify-between px-6 z-10 sticky top-0">
-               <div className="flex items-center gap-4">
-                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span className="hover:text-foreground cursor-pointer transition-colors">Research</span>
-                    <ChevronRight className="w-4 h-4" />
-                    <span className="font-semibold text-foreground flex items-center gap-2 bg-primary/10 px-2 py-0.5 rounded-md text-primary">
-                        {selectedNode ? selectedNode.name : "Overview"}
-                    </span>
-                 </div>
-               </div>
+          {/* Top Toolbar */}
+          <div className="h-14 border-b bg-card/30 backdrop-blur-xl flex items-center justify-between px-6 z-10 sticky top-0">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span className="hover:text-foreground cursor-pointer transition-colors">Research</span>
+                <ChevronRight className="w-4 h-4" />
+                <span className="font-semibold text-foreground flex items-center gap-2 bg-primary/10 px-2 py-0.5 rounded-md text-primary">
+                  {selectedNode ? selectedNode.name : "Overview"}
+                </span>
+              </div>
+            </div>
 
-               <div className="flex items-center gap-2">
-                  {/* Collaborators */}
-                  <div className="flex items-center -space-x-2 mr-4">
-                     {[1,2,3].map(i => (
-                         <div key={i} className="w-8 h-8 rounded-full border-2 border-background bg-muted flex items-center justify-center text-xs font-bold relative group cursor-pointer hover:z-10 hover:scale-110 transition-all">
-                            <span className="group-hover:hidden">U{i}</span>
-                            <img 
-                                src={`https://i.pravatar.cc/150?u=${i}`} 
-                                alt="User" 
-                                className="w-full h-full rounded-full object-cover hidden group-hover:block"
-                            />
-                         </div>
-                     ))}
-                     <div className="w-8 h-8 rounded-full border-2 border-background bg-muted flex items-center justify-center text-xs text-muted-foreground hover:bg-muted/80 cursor-pointer z-0">
-                        +5
-                     </div>
+            <div className="flex items-center gap-2">
+              {/* Collaborators */}
+              <div className="flex items-center -space-x-2 mr-4">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="w-8 h-8 rounded-full border-2 border-background bg-muted flex items-center justify-center text-xs font-bold relative group cursor-pointer hover:z-10 hover:scale-110 transition-all">
+                    <span className="group-hover:hidden">U{i}</span>
+                    <img
+                      src={`https://i.pravatar.cc/150?u=${i}`}
+                      alt="User"
+                      className="w-full h-full rounded-full object-cover hidden group-hover:block"
+                    />
                   </div>
-
-                  <Separator orientation="vertical" className="h-6 mx-2" />
-
-                  <Button variant="outline" size="sm" className="h-9 gap-2">
-                    <Share2 className="w-4 h-4" />
-                    Share
-                  </Button>
-                  <Button size="sm" className="h-9 gap-2 bg-primary hover:bg-primary/90">
-                    <MessageSquare size={16} className="w-4 h-4" />
-                    Comment
-                  </Button>
-               </div>
-            </div>
-            
-            {/* Podcast Player Alert */}
-            {podcastUrl && (
-                <div className="mx-6 mt-4 p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 flex items-center justify-between animate-in slide-in-from-top-2">
-                    <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 rounded-full bg-purple-500 flex items-center justify-center text-white shrink-0 animate-pulse">
-                            <Volume2 size={20} />
-                        </div>
-                        <div>
-                             <h4 className="font-semibold text-sm">Now Playing: Podcast Summary</h4>
-                             <p className="text-xs text-muted-foreground">Generated analysis of "{selectedFile?.name}"</p>
-                        </div>
-                    </div>
-                    <audio controls className="h-8 max-w-[300px]" src={podcastUrl} autoPlay>
-                        Your browser does not support the audio element.
-                    </audio>
+                ))}
+                <div className="w-8 h-8 rounded-full border-2 border-background bg-muted flex items-center justify-center text-xs text-muted-foreground hover:bg-muted/80 cursor-pointer z-0">
+                  +5
                 </div>
-            )}
+              </div>
 
+              <Separator orientation="vertical" className="h-6 mx-2" />
 
-            {/* Content View Area */}
-            <div className="flex-1 overflow-auto p-8 relative">
-                {selectedNode ? (
-                    <div className="max-w-5xl mx-auto animate-in fade-in duration-300 slide-in-from-bottom-4">
-                        <div className="flex items-center justify-between mb-8">
-                            <div className="flex items-center gap-4">
-                                <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center text-primary border border-primary/20 shadow-lg">
-                                    {selectedNode.type === 'folder' ? <Folder className="w-8 h-8" /> : <FileText className="w-8 h-8" />}
-                                </div>
-                                <div>
-                                    <h1 className="text-3xl font-bold font-space-grotesk tracking-tight text-foreground">{selectedNode.name}</h1>
-                                    <p className="text-muted-foreground mt-1 flex items-center gap-2">
-                                        <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
-                                        Last edited just now by You
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex gap-2">
-                                <Button size="lg" className="rounded-xl shadow-lg shadow-primary/20">
-                                    Open
-                                </Button>
-                            </div>
-                        </div>
-
-                        {/* File Preview Mockup */}
-                        <div className="rounded-xl border bg-card/50 backdrop-blur-sm min-h-[500px] shadow-sm relative overflow-hidden group">
-                             <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-background/5 p-4">
-                                <Button variant="secondary" className="backdrop-blur-md">Preview File</Button>
-                             </div>
-                             <div className="p-12 text-center text-muted-foreground opacity-20 select-none pointer-events-none">
-                                <FileText className="w-32 h-32 mx-auto mb-4" />
-                                <h3 className="text-2xl font-bold">Content Preview</h3>
-                                <p>Select a file to view detailed content</p>
-                             </div>
-                        </div>
-                    </div>
-                ) : (
-                    // Dashboard Overview
-                    <div className="max-w-6xl mx-auto">
-                        <h2 className="text-2xl font-bold font-space-grotesk mb-6 flex items-center gap-2">
-                            <Sparkles className="w-6 h-6 text-primary" />
-                            Recent Activity
-                        </h2>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-                             {[1, 2, 3].map((i) => (
-                                 <Card key={i} className="hover:shadow-lg transition-all duration-300 cursor-pointer border-border/50 bg-card/40 hover:bg-card hover:border-primary/30 group">
-                                     <CardContent className="p-5">
-                                         <div className="flex items-start justify-between mb-4">
-                                             <div className="p-3 rounded-xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-                                                 <FileText className="w-6 h-6" />
-                                             </div>
-                                             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                                                 <MoreHorizontal className="w-4 h-4" />
-                                             </Button>
-                                         </div>
-                                         <h3 className="font-bold text-lg mb-1 group-hover:text-primary transition-colors">Research Paper {i}.pdf</h3>
-                                         <p className="text-sm text-muted-foreground mb-4 line-clamp-2">Analysis of quantum coherence in biological systems...</p>
-                                         <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                             <span>Updated 2h ago</span>
-                                             <div className="flex -space-x-2">
-                                                 <div className="w-6 h-6 rounded-full bg-blue-500 border-2 border-background" />
-                                                 <div className="w-6 h-6 rounded-full bg-purple-500 border-2 border-background" />
-                                             </div>
-                                         </div>
-                                     </CardContent>
-                                 </Card>
-                             ))}
-                        </div>
-
-                        <h2 className="text-2xl font-bold font-space-grotesk mb-6 flex items-center gap-2">
-                             <TrendingUp className="w-6 h-6 text-green-500" />
-                             Project Analytics
-                        </h2>
-                        <div className="grid lg:grid-cols-3 gap-6">
-                            <Card className="col-span-2 bg-gradient-to-br from-card/50 to-background border-border/50">
-                                <CardContent className="p-6">
-                                    <div className="h-[200px] flex items-center justify-center text-muted-foreground border-2 border-dashed border-border/50 rounded-xl bg-muted/20">
-                                        Activity Chart Placeholder
-                                    </div>
-                                </CardContent>
-                            </Card>
-                            <Card className="col-span-1 bg-gradient-to-br from-card/50 to-background border-border/50">
-                                <CardContent className="p-6 space-y-6">
-                                    <div>
-                                        <div className="flex justify-between text-sm mb-2">
-                                            <span className="font-medium">Storage Used</span>
-                                            <span className="text-muted-foreground">48%</span>
-                                        </div>
-                                        <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                            <div className="h-full bg-primary w-[48%]" />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div className="flex justify-between text-sm mb-2">
-                                            <span className="font-medium">Weekly Goals</span>
-                                            <span className="text-muted-foreground">3/5</span>
-                                        </div>
-                                        <div className="h-2 bg-muted rounded-full overflow-hidden">
-                                            <div className="h-full bg-green-500 w-[60%]" />
-                                        </div>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </div>
-                    </div>
-                )}
+              <Button variant="outline" size="sm" className="h-9 gap-2">
+                <Share2 className="w-4 h-4" />
+                Share
+              </Button>
+              <Button size="sm" className="h-9 gap-2 bg-primary hover:bg-primary/90">
+                <MessageSquare size={16} className="w-4 h-4" />
+                Comment
+              </Button>
             </div>
+          </div>
+
+          {/* Podcast Player Alert */}
+          {podcastUrl && (
+            <div className="mx-6 mt-4 p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 flex items-center justify-between animate-in slide-in-from-top-2">
+              <div className="flex items-center gap-4">
+                <div className="h-10 w-10 rounded-full bg-purple-500 flex items-center justify-center text-white shrink-0 animate-pulse">
+                  <Volume2 size={20} />
+                </div>
+                <div>
+                  <h4 className="font-semibold text-sm">Now Playing: Podcast Summary</h4>
+                  <p className="text-xs text-muted-foreground">Generated analysis of "{selectedFile?.name}"</p>
+                </div>
+              </div>
+              <audio controls className="h-8 max-w-[300px]" src={podcastUrl} autoPlay>
+                Your browser does not support the audio element.
+              </audio>
+            </div>
+          )}
+
+
+          {/* Content View Area */}
+          <div className="flex-1 overflow-auto p-8 relative">
+            {selectedNode ? (
+              <div className="max-w-5xl mx-auto animate-in fade-in duration-300 slide-in-from-bottom-4">
+                <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-4">
+                    <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center text-primary border border-primary/20 shadow-lg">
+                      {selectedNode.type === 'folder' ? <Folder className="w-8 h-8" /> : <FileText className="w-8 h-8" />}
+                    </div>
+                    <div>
+                      <h1 className="text-3xl font-bold font-space-grotesk tracking-tight text-foreground">{selectedNode.name}</h1>
+                      <p className="text-muted-foreground mt-1 flex items-center gap-2">
+                        <span className="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+                        Last edited just now by You
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="lg" className="rounded-xl shadow-lg shadow-primary/20">
+                      Open
+                    </Button>
+                  </div>
+                </div>
+
+                {/* File Preview Mockup */}
+                <div className="rounded-xl border bg-card/50 backdrop-blur-sm min-h-[500px] shadow-sm relative overflow-hidden group">
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-background/5 p-4">
+                    <Button variant="secondary" className="backdrop-blur-md">Preview File</Button>
+                  </div>
+                  <div className="p-12 text-center text-muted-foreground opacity-20 select-none pointer-events-none">
+                    <FileText className="w-32 h-32 mx-auto mb-4" />
+                    <h3 className="text-2xl font-bold">Content Preview</h3>
+                    <p>Select a file to view detailed content</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              // Dashboard Overview
+              <div className="max-w-6xl mx-auto">
+                <h2 className="text-2xl font-bold font-space-grotesk mb-6 flex items-center gap-2">
+                  <Sparkles className="w-6 h-6 text-primary" />
+                  Recent Activity
+                </h2>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+                  {[1, 2, 3].map((i) => (
+                    <Card key={i} className="hover:shadow-lg transition-all duration-300 cursor-pointer border-border/50 bg-card/40 hover:bg-card hover:border-primary/30 group">
+                      <CardContent className="p-5">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="p-3 rounded-xl bg-primary/10 text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                            <FileText className="w-6 h-6" />
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <h3 className="font-bold text-lg mb-1 group-hover:text-primary transition-colors">Research Paper {i}.pdf</h3>
+                        <p className="text-sm text-muted-foreground mb-4 line-clamp-2">Analysis of quantum coherence in biological systems...</p>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>Updated 2h ago</span>
+                          <div className="flex -space-x-2">
+                            <div className="w-6 h-6 rounded-full bg-blue-500 border-2 border-background" />
+                            <div className="w-6 h-6 rounded-full bg-purple-500 border-2 border-background" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                <h2 className="text-2xl font-bold font-space-grotesk mb-6 flex items-center gap-2">
+                  <TrendingUp className="w-6 h-6 text-green-500" />
+                  Project Analytics
+                </h2>
+                <div className="grid lg:grid-cols-3 gap-6">
+                  <Card className="col-span-2 bg-gradient-to-br from-card/50 to-background border-border/50">
+                    <CardContent className="p-6">
+                      <div className="h-[200px] flex items-center justify-center text-muted-foreground border-2 border-dashed border-border/50 rounded-xl bg-muted/20">
+                        Activity Chart Placeholder
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card className="col-span-1 bg-gradient-to-br from-card/50 to-background border-border/50">
+                    <CardContent className="p-6 space-y-6">
+                      <div>
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="font-medium">Storage Used</span>
+                          <span className="text-muted-foreground">48%</span>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-primary w-[48%]" />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="font-medium">Weekly Goals</span>
+                          <span className="text-muted-foreground">3/5</span>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div className="h-full bg-green-500 w-[60%]" />
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </main>
     </div>

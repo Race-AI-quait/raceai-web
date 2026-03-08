@@ -107,7 +107,7 @@ h6 {
 }
 
 .dark {
-  --background: #010409;
+  --background: #181818;
   --foreground: #E6E8F0;
   --card: #12141c;
   --card-foreground: #E6E8F0;
@@ -128,7 +128,7 @@ h6 {
   --warning-foreground: #010409;
 
   /* Gradient Variables */
-  --gradient-dark: linear-gradient(135deg, #010409 0%, #0a0d15 40%, #12141c 100%);
+  --gradient-dark: #181818;
   --gradient-accent-dark: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 100%);
   --gradient-radial-dark: radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.05) 0%, transparent 55%),
     radial-gradient(circle at 80% 70%, rgba(255, 255, 255, 0.03) 0%, transparent 60%);
@@ -412,7 +412,8 @@ h6 {
 }
 
 .dark .card-default {
-  background: rgba(17, 24, 39, 0.4); /* More transparent */
+  background: rgba(17, 24, 39, 0.4);
+  /* More transparent */
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -431,23 +432,26 @@ h6 {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: 24px; /* More rounded */
+  border-radius: 24px;
+  /* More rounded */
   padding: 32px;
   color: var(--card-foreground);
-  transition: all 400ms cubic-bezier(0.16, 1, 0.3, 1); /* Smooth elastic ease */
-  box-shadow: 
-    0 0 0 1px rgba(0,0,0,0.02),
-    0 8px 32px rgba(0,0,0,0.04);
+  transition: all 400ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* Smooth elastic ease */
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.02),
+    0 8px 32px rgba(0, 0, 0, 0.04);
   position: relative;
   overflow: hidden;
 }
 
 .dark .card-tech {
-  background: rgba(10, 15, 30, 0.6); /* Deep navy tint */
+  background: rgba(10, 15, 30, 0.6);
+  /* Deep navy tint */
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 
-    0 0 0 1px rgba(255,255,255,0.02),
-    0 20px 40px -10px rgba(0,0,0,0.5);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02),
+    0 20px 40px -10px rgba(0, 0, 0, 0.5);
 }
 
 /* Shine effect on hover for tech card */
@@ -458,12 +462,10 @@ h6 {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(255, 255, 255, 0.05),
-    transparent
-  );
+  background: linear-gradient(90deg,
+      transparent,
+      rgba(255, 255, 255, 0.05),
+      transparent);
   transition: 0.5s;
   pointer-events: none;
 }
@@ -474,7 +476,8 @@ h6 {
 }
 
 .dark .card-tech:hover {
-  border-color: rgba(99, 102, 241, 0.3); /* Indigo tint */
+  border-color: rgba(99, 102, 241, 0.3);
+  /* Indigo tint */
   background: rgba(15, 23, 42, 0.8);
   transform: translateY(-2px);
 }
@@ -748,12 +751,15 @@ select:focus {
    ======================================== */
 
 @layer base {
-  html, body {
+
+  html,
+  body {
     height: 100%;
     min-height: 100vh;
     margin: 0;
     padding: 0;
-    overscroll-behavior-y: none; /* Prevent elastic bounce/rubber-banding */
+    overscroll-behavior-y: none;
+    /* Prevent elastic bounce/rubber-banding */
   }
 
   body {
@@ -765,8 +771,8 @@ select:focus {
   }
 
   .dark body {
-      background: var(--gradient-dark);
-      color: var(--foreground);
+    background: var(--gradient-dark);
+    color: var(--foreground);
   }
 }
 
@@ -864,6 +870,7 @@ textarea,
   border-right: 1px solid var(--border);
   background: var(--card);
 }
+
 .dark .layout-sidebar {
   background: #101218;
 }

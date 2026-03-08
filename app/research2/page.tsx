@@ -13,6 +13,7 @@ const PDFViewer = dynamic(() => import("@/components/pdfviewer"), { ssr: false }
 import { ResearchChat } from "@/components/ResearchChat"; // Import new component
 import { useChatContext } from "@/app/context/ChatContext"; // Import context
 import * as pdfjsLib from "pdfjs-dist/build/pdf";
+import { AILatexEditor } from "@/components/AILatexEditor";
 
 if (typeof window !== "undefined") {
   // Align worker with pdf.js CDN to prevent bundler issues
@@ -25,6 +26,7 @@ if (typeof window !== "undefined") {
 
 
 
+import { useRef, useCallback } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -49,6 +51,10 @@ import {
   Pause,
   Volume2,
   MessageSquare,
+  PanelRightClose,
+  PanelRightOpen,
+  Menu,
+  GripVertical,
   Sparkles,
   BookOpen,
   Loader2,
@@ -135,7 +141,14 @@ const extractTextFromPdfUrl = async (url: string): Promise<string> => {
   return text;
 };
 
-const collectProjectFileSummaries = (node?: ProjectNode): string[] => {
+interface ProjectFileInfo {
+  name: string;
+  content?: string;
+  type?: string;
+  path?: string;
+}
+
+const collectProjectFileSummaries = (node?: ProjectNode, parentPath = ""): string[] => {
   if (!node) return [];
   const summaries: string[] = [];
   const traverse = (current: ProjectNode) => {
@@ -148,16 +161,36 @@ const collectProjectFileSummaries = (node?: ProjectNode): string[] => {
   return summaries;
 };
 
+const collectDeepProjectFiles = (node?: ProjectNode, parentPath = ""): ProjectFileInfo[] => {
+  if (!node) return [];
+  const files: ProjectFileInfo[] = [];
+  const traverse = (current: ProjectNode, path: string) => {
+    if (current.type === "file") {
+      files.push({
+        name: current.name,
+        content: current.content || undefined,
+        type: current.fileType || "file",
+        path: path ? `${path}/${current.name}` : current.name,
+      });
+    }
+    current.children?.forEach((child) => traverse(child, path ? `${path}/${current.name}` : current.name));
+  };
+  if (node.children) {
+    node.children.forEach((child) => traverse(child, ""));
+  }
+  return files;
+};
+
 export default function ResearchCollaborationPage() {
 
   const { toast } = useToast()
   const [viewMode, setViewMode] = useState<"overview" | "folder" | "file">("overview")
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(["1", "2"]))
-  
+
   // REMOVED: Old chat state (chatMessages, chatInput, etc) were here.
 
 
-  const { projects, addNode, updateNode, deleteNode, deleteProject, toggleProjectStar, addProject } = useProjects();
+  const { projects, addNode, updateNode, deleteNode, deleteProject, toggleProjectStar, addProject, saveFileContent } = useProjects();
 
   const [isDragging, setIsDragging] = useState(false)
   const [showWhiteboard, setShowWhiteboard] = useState(false);
@@ -167,12 +200,42 @@ export default function ResearchCollaborationPage() {
 
   const [selectedFile, setSelectedFile] = useState<ProjectNode | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<ProjectNode | null>(null)
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(null); // New state for chat selection
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [fileContext, setFileContext] = useState<{ name: string; text: string; type?: string } | null>(null);
   const [selectedFileContent, setSelectedFileContent] = useState<string>("");
   const [isLoadingFileContext, setIsLoadingFileContext] = useState(false);
-  
+
+  // Layout state
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isJarvisOpen, setIsJarvisOpen] = useState(false);
+  const [jarvisPanelWidth, setJarvisPanelWidth] = useState(400);
+  const isResizingRef = useRef(false);
+
+  // Jarvis panel resize handler (horizontal — drag left edge)
+  const handleJarvisResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    const startX = e.clientX;
+    const startWidth = jarvisPanelWidth;
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const delta = startX - ev.clientX;
+      const newWidth = Math.max(300, Math.min(700, startWidth + delta));
+      setJarvisPanelWidth(newWidth);
+    };
+
+    const onMouseUp = () => {
+      isResizingRef.current = false;
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [jarvisPanelWidth]);
+
   const { chatSessions } = useChatContext(); // Get chats from context
 
   useEffect(() => {
@@ -196,6 +259,12 @@ export default function ResearchCollaborationPage() {
       progress: activeProject.progress,
       documents: files
     };
+  }, [activeProject]);
+
+  // Deep file context for RAG — collects file names + content from active project
+  const allProjectFiles = useMemo(() => {
+    if (!activeProject) return [];
+    return collectDeepProjectFiles(activeProject.rootNode);
   }, [activeProject]);
 
   const projectStructure: ProjectNode[] = useMemo(() => {
@@ -515,7 +584,16 @@ export default function ResearchCollaborationPage() {
   };
 
   const loadFileContext = async (file: ProjectNode) => {
+    // For text files, prefer the stored content field
+    if (file.content) {
+      setFileContext({ name: file.name, text: file.content, type: file.fileType });
+      setSelectedFileContent(file.content);
+      setIsLoadingFileContext(false);
+      return;
+    }
+
     if (!file.fileUrl) {
+      // No content and no URL — show empty state without error
       setFileContext(null);
       setSelectedFileContent("");
       return;
@@ -533,9 +611,10 @@ export default function ResearchCollaborationPage() {
         setFileContext({ name: file.name, text, type: file.fileType });
         setSelectedFileContent(text);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load file context", error);
-      toast({ title: "File Preview Error", description: `Unable to load ${file.name}`, variant: "destructive" });
+      const errMsg = typeof error === 'object' ? (error?.message || String(error)) : String(error);
+      toast({ title: "File Preview Error", description: errMsg, variant: "destructive" });
       setFileContext(null);
       setSelectedFileContent("");
     } finally {
@@ -580,7 +659,7 @@ export default function ResearchCollaborationPage() {
       toast({ title: "Opening Chat", description: `Loading chat: ${file.name}` });
       return;
     }
-    
+
     if (file.type === "file") {
       if (file.projectId) {
         setActiveProjectId(file.projectId);
@@ -592,7 +671,8 @@ export default function ResearchCollaborationPage() {
       setSelectedFile(file);
       setSelectedFolder(null);
       setViewMode("file");
-      setSelectedChatId(prev => prev); // keep existing chat session active
+      setIsSidebarCollapsed(true); // Auto-collapse sidebar when viewing a file
+      setSelectedChatId(prev => prev);
       loadFileContext(file);
     }
   }
@@ -778,7 +858,7 @@ export default function ResearchCollaborationPage() {
 
   return (
     <div
-      className="h-screen overflow-y-hidden flex bg-gradient-to-br from-blue-100 via-blue-50 to-violet-50/20 dark:from-slate-950 dark:via-blue-950/40 dark:to-slate-900 relative"
+      className="h-screen overflow-y-hidden flex bg-gradient-to-br from-blue-100 via-blue-50 to-violet-50/20 dark:bg-[#181818] dark:bg-none relative"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -791,24 +871,22 @@ export default function ResearchCollaborationPage() {
           </div>
         </div>
       )}
-      <GeometricBackground variant="mobius" />
+      <div className="dark:hidden">
+        <GeometricBackground variant="mobius" />
+      </div>
       <NavigationSidebar />
 
-      <div className="flex-1 flex">
-        {/* Project Structure Sidebar */}
-        <div className="w-80 border-r border-border/50 glass-card flex flex-col">
+      <div className="flex-1 flex overflow-hidden">
+        {/* Project Structure Sidebar — collapsible */}
+        <div
+          className={`border-r border-border/50 bg-[#f9f9f9] dark:bg-[#1e1f20] dark text-foreground flex flex-col transition-all duration-300 ease-in-out ${isSidebarCollapsed ? "w-0 min-w-0 overflow-hidden opacity-0" : "w-80 min-w-[320px] opacity-100"
+            }`}
+        >
           {/* Header */}
           <div className="p-4 border-b border-border/50">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-foreground">Projects</h2>
               <div className="flex ">
-                {/* <Button size="sm" variant="ghost" onClick={() => setShowNotesModal(true)} title="Add Note">
-                  <StickyNote size={16} />
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setShowWhiteboard(true)} title="Open Whiteboard">
-                  <PenTool size={16} />
-                </Button> */}
-
                 <Button
                   size="sm"
                   variant="ghost"
@@ -836,18 +914,14 @@ export default function ResearchCollaborationPage() {
                   variant="ghost"
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Trigger new chat: reset selectedChatId to null (new chat mode)
                     setSelectedChatId(null);
-                    // Also ensure sidebar is visible/focused if logic relies on it?
-                    // ResearchChat handles null sessionId as "New Chat"
+                    setIsJarvisOpen(true);
                     toast({ title: "New Chat", description: "Start a new research conversation." });
                   }}
                   title="New Chat"
                 >
                   <MessageSquare size={16} />
                 </Button>
-
-
 
                 <div className="relative hover:cursor-pointer">
                   <Button
@@ -865,7 +939,6 @@ export default function ResearchCollaborationPage() {
                     multiple
                     onChange={(e) => {
                       if (e.target.files) Array.from(e.target.files).forEach(handleProcessFile);
-                      // Reset to allow same file selection again
                       e.target.value = '';
                     }}
                   />
@@ -881,401 +954,485 @@ export default function ResearchCollaborationPage() {
         </div>
 
 
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col">
-          {/* Header */}
-          <div className="p-3 border-b border-border/50">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                {viewMode !== "overview" && (
-                  <Button variant="ghost" size="sm" className="shadow-lg cursor-pointer" onClick={handleBackToOverview}>
-                    <ArrowLeft size={16} className="" />
-                    Back
+        {/* Main Content + Jarvis Sidebar wrapper */}
+        <div className="flex-1 flex min-w-0 overflow-hidden">
+
+          {/* Main Content Area */}
+          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            {/* Header */}
+            <div className="px-3 py-2 border-b border-border/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  {/* Sidebar toggle (hamburger) */}
+                  {isSidebarCollapsed && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 shrink-0"
+                      onClick={() => setIsSidebarCollapsed(false)}
+                      title="Show project tree"
+                    >
+                      <Menu size={18} />
+                    </Button>
+                  )}
+                  {viewMode !== "overview" && (
+                    <Button variant="ghost" size="sm" className="shadow-lg cursor-pointer" onClick={() => {
+                      handleBackToOverview();
+                      setIsSidebarCollapsed(false);
+                    }}>
+                      <ArrowLeft size={16} />
+                      Back
+                    </Button>
+                  )}
+                  <div>
+                    <h1 className="text-lg font-bold text-foreground truncate">
+                      {viewMode === "folder" && selectedFolder ? selectedFolder.name :
+                        viewMode === "file" && selectedFile ? selectedFile.name :
+                          "Research and Collaboration"}
+                    </h1>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  {(selectedFile || selectedFolder) && (
+                    <>
+                      <Button variant="outline" size="sm" className="atlassian-card hover:cursor-pointer border-border/50 hover:border-primary/50 transition-all duration-200">
+                        <Download size={16} />
+                      </Button>
+                      <Button variant="outline" size="sm" className="atlassian-card hover:cursor-pointer border-border/50 hover:border-primary/50 transition-all duration-200">
+                        <Share size={16} />
+                      </Button>
+                    </>
+                  )}
+                  {/* Jarvis AI toggle button */}
+                  <Button
+                    variant={isJarvisOpen ? "default" : "outline"}
+                    size="sm"
+                    className={`gap-2 transition-all duration-200 ${isJarvisOpen
+                      ? "bg-primary text-primary-foreground shadow-md"
+                      : "border-border/30 hover:border-primary/40 hover:bg-muted/50"
+                      }`}
+                    onClick={() => setIsJarvisOpen(!isJarvisOpen)}
+                  >
+                    {isJarvisOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+                    Jarvis
                   </Button>
-                )}
-                <div>
-                  <h1 className="text-lg font-bold text-foreground">
-                    {viewMode === "folder" && selectedFolder ? selectedFolder.name :
-                      viewMode === "file" && selectedFile ? selectedFile.name :
-                        "Research and Collaboration"}
-                  </h1>
                 </div>
               </div>
-              {(selectedFile || selectedFolder) && (
-                <div className="flex space-x-2 ">
-                  <Button variant="outline" size="sm" className="atlassian-card hover:cursor-pointer border-border/50 hover:border-primary/50 transition-all duration-200">
-                    <Download size={16} className="" />
-                    {/* {selectedFile ? "Download" : "Export"} */}
-                  </Button>
-                  <Button variant="outline" size="sm" className="atlassian-card hover:cursor-pointer border-border/50 hover:border-primary/50 transition-all duration-200">
-                    <Share size={16} className="" />
+            </div>
 
-                  </Button>
+            {/* Content based on view mode */}
+            <div className="flex-1">
+              {viewMode === "folder" && selectedFolder && (
+                <div className="h-screen flex flex-col  overflow-auto no-scrollbar p-1">
+                  {/* Top Row: Focus & Papers */}
+                  <div className="flex flex-col gap-6">
+                    <TodaysFocus className="h-full" />
+                    <RecentPapers projectId={selectedFolder.id} />
+                  </div>
+
+                  {/* Bottom Row: Collaborators & Files */}
+                  <div className="grid grid-cols-1 mt-9 md:grid-cols-2 gap-6">
+                    {/* Collaborators */}
+                    <div className="atlassian-card h-[calc(100vh-200px)]">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-foreground flex items-center">
+                          <Users size={18} className="mr-2" />
+                          Collaborators ({selectedFolder.collaborators?.length || 0})
+
+                        </h3>
+                        <Button size="sm" variant="ghost">
+                          <Plus size={16} />
+                        </Button>
+                      </div>
+                      <div className="space-y-3">
+                        {selectedFolder.collaborators?.map((collaborator) => (
+                          <div key={collaborator.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
+
+                            <div className="flex items-center space-x-3">
+                              <div className="relative">
+                                {collaborator.avatar ? (
+                                  <img src={collaborator.avatar} alt={collaborator.name} className="w-8 h-8 rounded-full border border-border" />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium">
+                                    {collaborator.name.charAt(0)}
+                                  </div>
+                                )}
+                                <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-background ${collaborator.status === 'online' ? 'bg-green-500' :
+                                  collaborator.status === 'busy' ? 'bg-red-500' : 'bg-gray-400'
+                                  }`} />
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-sm font-medium">{collaborator.name}</span>
+                                <span className="text-[10px] text-muted-foreground capitalize">{collaborator.role}</span>
+                              </div>
+                            </div>
+                            {/* <Button variant="ghost" size="icon" className="h-6 w-6">
+                                    <FileIcon size={32} className="text-muted-foreground mb-2" />
+                                  </Button> */}
+                          </div>
+                        ))}
+                        {(!selectedFolder.collaborators || selectedFolder.collaborators.length === 0) && (
+                          <p className="text-sm text-muted-foreground italic">No collaborators to display.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Files - Using new thumbnail layout if possible, or list */}
+                    <div className="atlassian-card h-fit">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-foreground flex items-center">
+                          <FileText size={18} className="mr-2" />
+                          Files ({selectedFolder.files?.length || 0})
+                        </h3>
+                        <Button size="sm" variant="ghost" onClick={() => document.getElementById('sidebar-file-upload')?.click()}>
+                          <Upload size={16} />
+                        </Button>
+                      </div>
+                      {/* Thumbnail Grid for Files */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                        {selectedFolder.children?.filter(c => c.type === 'file').map((file) => (
+                          <div
+                            key={file.id}
+                            className="group relative bg-card hover:bg-muted/50 border border-border/50 hover:border-primary/50 rounded-lg p-3 transition-all cursor-pointer flex flex-col items-center text-center gap-2"
+                            onClick={() => handleFileSelect(file)}
+                          >
+                            <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                              {file.name.endsWith('.pdf') ? <FileText size={20} /> :
+                                file.name.endsWith('.md') ? <StickyNote size={20} /> :
+                                  <FileIcon size={20} />}
+                            </div>
+                            <p className="font-medium text-xs truncate w-full" title={file.name}>{file.name}</p>
+                          </div>
+                        ))}
+                        <div
+                          className="border-2 border-dashed border-border hover:border-primary/50 rounded-lg p-3 flex flex-col items-center justify-center text-muted-foreground hover:text-primary cursor-pointer transition-colors min-h-[80px]"
+                          onClick={() => document.getElementById('sidebar-file-upload')?.click()}
+                        >
+                          <Plus size={20} />
+                          <span className="text-[10px] font-medium mt-1">Add</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+              )}
+
+              {/* View Mode: Overview - Projects Grid */}
+              {viewMode === "overview" && selectedFolder && (
+                <ScrollArea className="flex-1 p-6">
+                  <div className="max-w-6xl mx-auto space-y-8">
+
+                    {/* 1. Collaborators Section (Top) */}
+                    <section>
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-semibold flex items-center gap-2">
+                          <Users size={18} className="text-primary" />
+                          Collaborators
+                        </h2>
+                        <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
+                          <Plus size={16} className="mr-1" /> Invite
+                        </Button>
+                      </div>
+                      <div className="flex flex-wrap gap-4">
+                        {selectedFolder.collaborators?.map((collab) => (
+                          <div key={collab.id} className="flex items-center space-x-3 bg-card border border-border/50 p-2 pr-4 rounded-full shadow-sm">
+                            <div className="relative">
+                              {collab.avatar ? (
+                                <img src={collab.avatar} alt={collab.name} className="w-8 h-8 rounded-full border border-border" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium">
+                                  {collab.name.charAt(0)}
+                                </div>
+                              )}
+                              <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-background ${collab.status === 'online' ? 'bg-green-500' :
+                                collab.status === 'busy' ? 'bg-red-500' : 'bg-gray-400'
+                                }`} />
+                            </div>
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium">{collab.name}</span>
+                              <span className="text-[10px] text-muted-foreground capitalize">{collab.role}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {(!selectedFolder.collaborators || selectedFolder.collaborators.length === 0) && (
+                          <p className="text-sm text-muted-foreground italic">No collaborators yet.</p>
+                        )}
+                      </div>
+                    </section>
+
+                    {/* 2. Main Content Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Left Col: Today's Focus */}
+                      <div className="space-y-4">
+                        <h2 className="text-lg font-semibold flex items-center gap-2">
+                          <Target size={18} className="text-primary" />
+                          Today's Focus
+                        </h2>
+                        <TodaysFocus />
+                      </div>
+
+                      {/* Right Col: Recent Papers */}
+                      <div className="space-y-4">
+                        <h2 className="text-lg font-semibold flex items-center gap-2">
+                          <BookOpen size={18} className="text-primary" />
+                          Recent Papers
+                        </h2>
+                        <RecentPapers />
+                      </div>
+                    </div>
+
+                    {/* 3. Files & Resources (Thumbnails) */}
+                    <section>
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-semibold flex items-center gap-2">
+                          <FileText size={18} className="text-primary" />
+                          Files & Resources
+                        </h2>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => document.getElementById('sidebar-file-upload')?.click()}>
+                            <Upload size={14} className="mr-2" /> Upload New
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                        {selectedFolder.children?.filter(c => c.type === 'file').map((file) => (
+                          <div
+                            key={file.id}
+                            className="group relative bg-card hover:bg-muted/50 border border-border/50 hover:border-primary/50 rounded-xl p-4 transition-all cursor-pointer flex flex-col items-center text-center gap-3 aspect-square justify-center"
+                            onClick={() => handleFileSelect(file)}
+                          >
+                            <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                              {file.name.endsWith('.pdf') ? <FileText size={48} className="text-primary opacity-80" /> :
+                                file.name.endsWith('.md') ? <StickyNote size={48} className="text-yellow-500 opacity-80" /> :
+                                  <FileIcon size={48} className="text-blue-500 opacity-80" />}
+                            </div>
+                            <div className="space-y-1 w-full">
+                              <p className="font-medium text-sm truncate w-full" title={file.name}>{file.name}</p>
+                              <p className="text-[10px] text-muted-foreground">{file.size} • {file.lastModified}</p>
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Upload Placeholder Card */}
+                        <div
+                          className="border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-4 flex flex-col items-center justify-center text-muted-foreground hover:text-primary cursor-pointer transition-colors aspect-square gap-2"
+                          onClick={() => document.getElementById('sidebar-file-upload')?.click()}
+                        >
+                          <Plus size={24} />
+                          <span className="text-xs font-medium">Add File</span>
+                        </div>
+                      </div>
+                    </section>
+
+                  </div>
+                </ScrollArea>
+              )}
+
+              {viewMode === "file" && selectedFile && (
+                <div className="h-full min-h-0 overflow-hidden">
+                  {selectedFile.fileType === "pdf" ? (
+                    <PDFViewer
+                      fileUrl={selectedFile.fileUrl || ""}
+                      onTextExtracted={(text) => {
+                        setFileContext({
+                          name: selectedFile.name,
+                          text: text,
+                          type: "pdf",
+                        });
+                      }}
+                    />
+                  ) : selectedFile.name.endsWith(".tex") ? (
+                    <AILatexEditor
+                      file={selectedFile}
+                      initialContent={selectedFile.content || selectedFileContent}
+                      onSave={(val) => {
+                        setSelectedFileContent(val);
+                      }}
+                      onContentSave={(content) => {
+                        if (selectedFile.projectId) {
+                          saveFileContent(selectedFile.projectId, selectedFile.id, content);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div className="h-full w-full overflow-auto p-6">
+                      {isLoadingFileContext ? (
+                        <div className="flex items-center justify-center h-full text-muted-foreground">
+                          <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                          Loading content...
+                        </div>
+                      ) : selectedFileContent ? (
+                        <pre className="text-sm whitespace-pre-wrap font-mono">
+                          {selectedFileContent}
+                        </pre>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Select a supported file to preview.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!selectedFolder && !selectedFile && (
+                <ScrollArea className="flex-1 p-6">
+                  <div className="max-w-6xl mx-auto space-y-8">
+
+                    {/* Projects Header */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
+                        <p className="text-muted-foreground">Manage your research projects</p>
+                      </div>
+                      <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-lg">
+                        {["All", "Active", "Completed", "Archived"].map((tab) => (
+                          <button
+                            key={tab}
+                            className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${tab === "All" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                              }`}
+                          >
+                            {tab}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Projects Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                      {projects.map((project) => {
+                        const rootNode = projectStructure.find(node => node.projectId === project.id);
+                        return (
+                          <div
+                            key={project.id}
+                            className="group relative bg-card hover:bg-muted/30 border border-border rounded-xl p-5 hover:border-primary/50 transition-all cursor-pointer shadow-sm hover:shadow-md flex flex-col justify-between min-h-[200px]"
+                            onClick={() => rootNode && handleFolderSelect(rootNode)}
+                          >
+                            {/* Card Header */}
+                            <div className="flex items-start justify-between mb-4">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-3 h-3 rounded-full ${project.status === 'active' ? 'bg-blue-500' :
+                                  project.status === 'completed' ? 'bg-green-500' : 'bg-gray-400'
+                                  }`} />
+                                <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors">
+                                  {project.name}
+                                </h3>
+                              </div>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-yellow-500" onClick={(e) => { e.stopPropagation(); toggleProjectStar(project.id); }}>
+                                  <Star size={16} fill={project.isStarred ? "currentColor" : "none"} className={project.isStarred ? "text-yellow-500" : ""} />
+                                </Button>
+                              </div>
+                            </div>
+
+                            {/* Card Body */}
+                            <div className="space-y-4 mb-6">
+                              <p className="text-sm text-muted-foreground line-clamp-2">
+                                {project.description || "No description provided for this research project."}
+                              </p>
+                              <div className="space-y-1.5">
+                                <div className="flex justify-between text-xs text-muted-foreground">
+                                  <span>Progress</span>
+                                  <span>{project.progress || Math.floor(Math.random() * 100)}%</span>
+                                </div>
+                                <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-primary rounded-full transition-all"
+                                    style={{ width: `${project.progress || Math.floor(Math.random() * 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Card Footer */}
+                            <div className="flex items-center justify-between pt-4 border-t border-border/50 mt-auto">
+                              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                                <div className="flex items-center gap-1.5">
+                                  <Calendar size={14} />
+                                  <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <FileText size={14} />
+                                  <span>{project.rootNode.children?.length || 0} docs</span>
+                                </div>
+                              </div>
+
+                              <div className="flex -space-x-2">
+                                {[1, 2, 3].map((i) => (
+                                  <div key={i} className="w-6 h-6 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[10px] font-medium text-muted-foreground">
+                                    {['A', 'B', 'C'][i - 1]}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+
+                      {/* New Project Card */}
+                      <div
+                        className="border-2 border-dashed border-border hover:border-primary/50 text-muted-foreground hover:text-primary rounded-xl p-5 flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors min-h-[200px]"
+                        onClick={handleAddProject}
+                      >
+                        <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+                          <Plus size={24} />
+                        </div>
+                        <span className="font-medium">Create New Project</span>
+                      </div>
+                    </div>
+                  </div>
+                </ScrollArea>
               )}
             </div>
           </div>
 
-          {/* Content based on view mode */}
-          <div className="flex-1">
-            {viewMode === "folder" && selectedFolder && (
-              <div className="h-screen flex flex-col  overflow-auto no-scrollbar p-1">
-                {/* Top Row: Focus & Papers */}
-                <div className="flex flex-col gap-6">
-                  <TodaysFocus className="h-full" />
-                  <RecentPapers projectId={selectedFolder.id} />
+          {/* Jarvis AI Right Sidebar — Cursor/VS Code agent style */}
+          {isJarvisOpen && (
+            <div
+              className="flex h-full transition-all duration-300 ease-in-out"
+              style={{ width: `${jarvisPanelWidth}px`, minWidth: '300px' }}
+            >
+              {/* Resize Handle (left edge) */}
+              <div
+                className="flex items-center justify-center w-1.5 cursor-col-resize hover:bg-primary/20 transition-colors group flex-shrink-0"
+                onMouseDown={handleJarvisResizeStart}
+              >
+                <div className="w-0.5 h-8 rounded-full bg-border/50 group-hover:bg-primary transition-colors" />
+              </div>
+
+              {/* Sidebar Content */}
+              <div className="flex-1 flex flex-col min-w-0 bg-[#f9f9f9] dark:bg-[#1e1f20]">
+                {/* Panel Header */}
+                <div className="flex items-center justify-between px-3 py-2 border-b border-border/20">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                    <span className="text-sm font-semibold text-foreground">Jarvis</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">AI</Badge>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                    onClick={() => setIsJarvisOpen(false)}
+                  >
+                    <X size={14} />
+                  </Button>
                 </div>
 
-                {/* Bottom Row: Collaborators & Files */}
-                <div className="grid grid-cols-1 mt-9 md:grid-cols-2 gap-6">
-                  {/* Collaborators */}
-                  <div className="atlassian-card h-[calc(100vh-200px)]">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-foreground flex items-center">
-                        <Users size={18} className="mr-2" />
-                        Collaborators ({selectedFolder.collaborators?.length || 0})
-
-                      </h3>
-                      <Button size="sm" variant="ghost">
-                        <Plus size={16} />
-                      </Button>
-                    </div>
-                    <div className="space-y-3">
-                      {selectedFolder.collaborators?.map((collaborator) => (
-                        <div key={collaborator.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-
-                          <div className="flex items-center space-x-3">
-                            <div className="relative">
-                              {collaborator.avatar ? (
-                                <img src={collaborator.avatar} alt={collaborator.name} className="w-8 h-8 rounded-full border border-border" />
-                              ) : (
-                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium">
-                                  {collaborator.name.charAt(0)}
-                                </div>
-                              )}
-                              <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-background ${collaborator.status === 'online' ? 'bg-green-500' :
-                                collaborator.status === 'busy' ? 'bg-red-500' : 'bg-gray-400'
-                                }`} />
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="text-sm font-medium">{collaborator.name}</span>
-                              <span className="text-[10px] text-muted-foreground capitalize">{collaborator.role}</span>
-                            </div>
-                          </div>
-                          {/* <Button variant="ghost" size="icon" className="h-6 w-6">
-                                    <FileIcon size={32} className="text-muted-foreground mb-2" />
-                                  </Button> */}
-                        </div>
-                      ))}
-                      {(!selectedFolder.collaborators || selectedFolder.collaborators.length === 0) && (
-                        <p className="text-sm text-muted-foreground italic">No collaborators to display.</p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Files - Using new thumbnail layout if possible, or list */}
-                  <div className="atlassian-card h-fit">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-foreground flex items-center">
-                        <FileText size={18} className="mr-2" />
-                        Files ({selectedFolder.files?.length || 0})
-                      </h3>
-                      <Button size="sm" variant="ghost" onClick={() => document.getElementById('sidebar-file-upload')?.click()}>
-                        <Upload size={16} />
-                      </Button>
-                    </div>
-                    {/* Thumbnail Grid for Files */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {selectedFolder.children?.filter(c => c.type === 'file').map((file) => (
-                        <div
-                          key={file.id}
-                          className="group relative bg-card hover:bg-muted/50 border border-border/50 hover:border-primary/50 rounded-lg p-3 transition-all cursor-pointer flex flex-col items-center text-center gap-2"
-                          onClick={() => handleFileSelect(file)}
-                        >
-                          <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                            {file.name.endsWith('.pdf') ? <FileText size={20} /> :
-                              file.name.endsWith('.md') ? <StickyNote size={20} /> :
-                                <FileIcon size={20} />}
-                          </div>
-                          <p className="font-medium text-xs truncate w-full" title={file.name}>{file.name}</p>
-                        </div>
-                      ))}
-                      <div
-                        className="border-2 border-dashed border-border hover:border-primary/50 rounded-lg p-3 flex flex-col items-center justify-center text-muted-foreground hover:text-primary cursor-pointer transition-colors min-h-[80px]"
-                        onClick={() => document.getElementById('sidebar-file-upload')?.click()}
-                      >
-                        <Plus size={20} />
-                        <span className="text-[10px] font-medium mt-1">Add</span>
-                      </div>
-                    </div>
-                  </div>
+                {/* Chat Content */}
+                <div className="flex-1 overflow-hidden">
+                  <ResearchChat
+                    sessionId={selectedChatId || undefined}
+                    projectId={activeProject?.id || projects[0]?.id}
+                    onNewChat={() => setSelectedChatId(null)}
+                    onSessionLinked={(id) => setSelectedChatId(id)}
+                    projectContext={activeProjectContext}
+                    fileContext={fileContext}
+                    allProjectFiles={allProjectFiles}
+                  />
                 </div>
               </div>
-            )}
-
-            {/* View Mode: Overview - Projects Grid */}
-            {viewMode === "overview" && selectedFolder && (
-              <ScrollArea className="flex-1 p-6">
-                <div className="max-w-6xl mx-auto space-y-8">
-
-                  {/* 1. Collaborators Section (Top) */}
-                  <section>
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-lg font-semibold flex items-center gap-2">
-                        <Users size={18} className="text-primary" />
-                        Collaborators
-                      </h2>
-                      <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-primary">
-                        <Plus size={16} className="mr-1" /> Invite
-                      </Button>
-                    </div>
-                    <div className="flex flex-wrap gap-4">
-                      {selectedFolder.collaborators?.map((collab) => (
-                        <div key={collab.id} className="flex items-center space-x-3 bg-card border border-border/50 p-2 pr-4 rounded-full shadow-sm">
-                          <div className="relative">
-                            {collab.avatar ? (
-                              <img src={collab.avatar} alt={collab.name} className="w-8 h-8 rounded-full border border-border" />
-                            ) : (
-                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-medium">
-                                {collab.name.charAt(0)}
-                              </div>
-                            )}
-                            <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-background ${collab.status === 'online' ? 'bg-green-500' :
-                              collab.status === 'busy' ? 'bg-red-500' : 'bg-gray-400'
-                              }`} />
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-sm font-medium">{collab.name}</span>
-                            <span className="text-[10px] text-muted-foreground capitalize">{collab.role}</span>
-                          </div>
-                        </div>
-                      ))}
-                      {(!selectedFolder.collaborators || selectedFolder.collaborators.length === 0) && (
-                        <p className="text-sm text-muted-foreground italic">No collaborators yet.</p>
-                      )}
-                    </div>
-                  </section>
-
-                  {/* 2. Main Content Grid */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Left Col: Today's Focus */}
-                    <div className="space-y-4">
-                      <h2 className="text-lg font-semibold flex items-center gap-2">
-                        <Target size={18} className="text-primary" />
-                        Today's Focus
-                      </h2>
-                      <TodaysFocus />
-                    </div>
-
-                    {/* Right Col: Recent Papers */}
-                    <div className="space-y-4">
-                      <h2 className="text-lg font-semibold flex items-center gap-2">
-                        <BookOpen size={18} className="text-primary" />
-                        Recent Papers
-                      </h2>
-                      <RecentPapers />
-                    </div>
-                  </div>
-
-                  {/* 3. Files & Resources (Thumbnails) */}
-                  <section>
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-lg font-semibold flex items-center gap-2">
-                        <FileText size={18} className="text-primary" />
-                        Files & Resources
-                      </h2>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" onClick={() => document.getElementById('sidebar-file-upload')?.click()}>
-                          <Upload size={14} className="mr-2" /> Upload New
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      {selectedFolder.children?.filter(c => c.type === 'file').map((file) => (
-                        <div
-                          key={file.id}
-                          className="group relative bg-card hover:bg-muted/50 border border-border/50 hover:border-primary/50 rounded-xl p-4 transition-all cursor-pointer flex flex-col items-center text-center gap-3 aspect-square justify-center"
-                          onClick={() => handleFileSelect(file)}
-                        >
-                          <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                              {file.name.endsWith('.pdf') ? <FileText size={48} className="text-primary opacity-80" /> :
-                                file.name.endsWith('.md') ? <StickyNote size={48} className="text-yellow-500 opacity-80" /> :
-                                  <FileIcon size={48} className="text-blue-500 opacity-80" />}
-                          </div>
-                          <div className="space-y-1 w-full">
-                            <p className="font-medium text-sm truncate w-full" title={file.name}>{file.name}</p>
-                            <p className="text-[10px] text-muted-foreground">{file.size} • {file.lastModified}</p>
-                          </div>
-                        </div>
-                      ))}
-
-                      {/* Upload Placeholder Card */}
-                      <div
-                        className="border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-4 flex flex-col items-center justify-center text-muted-foreground hover:text-primary cursor-pointer transition-colors aspect-square gap-2"
-                        onClick={() => document.getElementById('sidebar-file-upload')?.click()}
-                      >
-                        <Plus size={24} />
-                        <span className="text-xs font-medium">Add File</span>
-                      </div>
-                    </div>
-                  </section>
-
-                </div>
-              </ScrollArea>
-            )}
-
-            {viewMode === "file" && selectedFile && (
-              <div className="group relative h-full">
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/10 to-accent/10 rounded-xl blur opacity-75 transition duration-300" />
-                <Card className="relative atlassian-card h-full border-border/50">
-                  <CardContent className="p-0 h-[calc(100vh-4rem)] ">
-                    {selectedFile.fileType === "pdf" ? (
-                      <PDFViewer fileUrl={selectedFile.fileUrl || ""} />
-                    ) : (
-                      <div className="h-full w-full overflow-auto p-6">
-                        {isLoadingFileContext ? (
-                          <div className="flex items-center justify-center h-full text-muted-foreground">
-                            <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                            Loading content...
-                          </div>
-                        ) : selectedFileContent ? (
-                          <pre className="text-sm whitespace-pre-wrap font-mono">
-                            {selectedFileContent}
-                          </pre>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">Select a supported file to preview.</p>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            {!selectedFolder && !selectedFile && (
-              <ScrollArea className="flex-1 p-6">
-                <div className="max-w-6xl mx-auto space-y-8">
-
-                  {/* Projects Header */}
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
-                      <p className="text-muted-foreground">Manage your research projects</p>
-                    </div>
-                    <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-lg">
-                      {["All", "Active", "Completed", "Archived"].map((tab) => (
-                        <button
-                          key={tab}
-                          className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${tab === "All" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
-                            }`}
-                        >
-                          {tab}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Projects Grid */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                    {projects.map((project) => {
-                      const rootNode = projectStructure.find(node => node.projectId === project.id);
-                      return (
-                      <div
-                        key={project.id}
-                        className="group relative bg-card hover:bg-muted/30 border border-border rounded-xl p-5 hover:border-primary/50 transition-all cursor-pointer shadow-sm hover:shadow-md flex flex-col justify-between min-h-[200px]"
-                        onClick={() => rootNode && handleFolderSelect(rootNode)}
-                      >
-                        {/* Card Header */}
-                        <div className="flex items-start justify-between mb-4">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-3 h-3 rounded-full ${project.status === 'active' ? 'bg-blue-500' :
-                              project.status === 'completed' ? 'bg-green-500' : 'bg-gray-400'
-                              }`} />
-                            <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors">
-                              {project.name}
-                            </h3>
-                          </div>
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-yellow-500" onClick={(e) => { e.stopPropagation(); toggleProjectStar(project.id); }}>
-                              <Star size={16} fill={project.isStarred ? "currentColor" : "none"} className={project.isStarred ? "text-yellow-500" : ""} />
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* Card Body */}
-                        <div className="space-y-4 mb-6">
-                          <p className="text-sm text-muted-foreground line-clamp-2">
-                            {project.description || "No description provided for this research project."}
-                          </p>
-                          <div className="space-y-1.5">
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Progress</span>
-                              <span>{project.progress || Math.floor(Math.random() * 100)}%</span>
-                            </div>
-                            <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-primary rounded-full transition-all"
-                                style={{ width: `${project.progress || Math.floor(Math.random() * 100)}%` }}
-                              />
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Card Footer */}
-                        <div className="flex items-center justify-between pt-4 border-t border-border/50 mt-auto">
-                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                            <div className="flex items-center gap-1.5">
-                              <Calendar size={14} />
-                              <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <FileText size={14} />
-                              <span>{project.rootNode.children?.length || 0} docs</span>
-                            </div>
-                          </div>
-
-                          <div className="flex -space-x-2">
-                            {[1, 2, 3].map((i) => (
-                              <div key={i} className="w-6 h-6 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[10px] font-medium text-muted-foreground">
-                                {['A', 'B', 'C'][i - 1]}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )})}
-
-                    {/* New Project Card */}
-                    <div
-                      className="border-2 border-dashed border-border hover:border-primary/50 text-muted-foreground hover:text-primary rounded-xl p-5 flex flex-col items-center justify-center gap-3 cursor-pointer transition-colors min-h-[200px]"
-                      onClick={handleAddProject}
-                    >
-                      <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-                        <Plus size={24} />
-                      </div>
-                      <span className="font-medium">Create New Project</span>
-                    </div>
-                  </div>
-                </div>
-              </ScrollArea>
-            )}
-          </div>
-        </div>
-
-        {/* End of Main Content Area, Start of AI Sidebar (if needed) */}
-
-        {/* AI Assistant Sidebar - Replaced with ResearchChat */}
-        {/* AI Assistant Sidebar - Replaced with ResearchChat */}
-        <div className="w-96 border-l border-border/50 glass-card flex flex-col h-full bg-background/50">
-            <ResearchChat 
-                sessionId={selectedChatId || undefined} 
-                projectId={activeProject?.id || projects[0]?.id} 
-                onNewChat={() => setSelectedChatId(null)} 
-                onSessionLinked={(id) => setSelectedChatId(id)}
-                projectContext={activeProjectContext}
-                fileContext={fileContext}
-            />
+            </div>
+          )}
         </div>
       </div>
     </div>

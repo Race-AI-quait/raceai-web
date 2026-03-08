@@ -11,7 +11,7 @@ export default function PrivacyPage() {
   return (
     <div className="min-h-screen relative font-outfit">
       {/* Background */}
-      <div className="fixed inset-0 z-0 bg-background dark:bg-[radial-gradient(circle_at_50%_50%,#0f172a_0%,#020617_100%)]">
+      <div className="fixed inset-0 z-0 bg-background dark:bg-[#181818]">
         <UnifiedInteractiveGrid />
       </div>
 
@@ -32,15 +32,15 @@ export default function PrivacyPage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
         >
-          <Link 
-            href="/" 
+          <Link
+            href="/"
             className="inline-flex items-center text-sm text-muted-foreground hover:text-primary mb-8 transition-colors group"
           >
             <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
             Back to Home
           </Link>
 
-          <div className="card-glass backdrop-blur-md bg-white/60 dark:bg-black/40 border border-white/20 dark:border-white/10 p-8 md:p-12 rounded-2xl shadow-xl">
+          <div className="card-glass backdrop-blur-md bg-white/60 dark:bg-[#181818]/60 border border-white/20 dark:border-white/10 p-8 md:p-12 rounded-2xl shadow-xl">
             <h1 className="text-4xl font-bold mb-2">Privacy Policy</h1>
             <p className="text-muted-foreground mb-8">Last updated: January 24, 2026</p>
 
@@ -81,10 +81,10 @@ export default function PrivacyPage() {
               </section>
 
               <section>
-                 <h2 className="text-2xl font-semibold mb-4 text-primary">5. Contact Us</h2>
-                 <p>
-                    If you have questions about this policy, please contact us at <a href="mailto:privacy@raceai.com" className="text-primary hover:underline">privacy@raceai.com</a>.
-                 </p>
+                <h2 className="text-2xl font-semibold mb-4 text-primary">5. Contact Us</h2>
+                <p>
+                  If you have questions about this policy, please contact us at <a href="mailto:privacy@raceai.com" className="text-primary hover:underline">privacy@raceai.com</a>.
+                </p>
               </section>
             </div>
           </div>

@@ -189,7 +189,7 @@ export default function WelcomePage() {
 
   return (
     <div className="min-h-screen relative">
-      <div className="dark:block hidden">
+      <div className="dark:hidden absolute inset-0 z-0 pointer-events-none">
         <GeometricBackground variant="tesseract" />
       </div>
       {/* Header */}
@@ -216,7 +216,7 @@ export default function WelcomePage() {
             {/* ARIA Welcome */}
             <div className="text-center mb-8">
               <ARIAAssistant
-                size={100}
+                size="large"
                 state={currentState}
                 message={currentMessage}
                 onMessageComplete={() => idle()}
@@ -227,75 +227,75 @@ export default function WelcomePage() {
             <div className="group relative">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/10 to-accent/10 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300" />
               <Card className="relative glass-card border-border/50 transition-all duration-300">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-primary" />
-                  Your Personalized Tools
-                </CardTitle>
-                <CardDescription>Everything you need, tailored for your research level</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid md:grid-cols-2 gap-4">
-                  {content.quickActions.map((action, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleQuickAction(action.title)}
-                      className="p-4 glass-card border border-border/50 hover:border-primary/50 transition-all duration-200 text-left group hover:shadow-lg"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className={cn("p-2 rounded-lg text-white", action.color)}>
-                          <action.icon className="w-5 h-5" />
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-primary" />
+                    Your Personalized Tools
+                  </CardTitle>
+                  <CardDescription>Everything you need, tailored for your research level</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {content.quickActions.map((action, index) => (
+                      <button
+                        key={index}
+                        onClick={() => handleQuickAction(action.title)}
+                        className="p-4 glass-card border border-border/50 hover:border-primary/50 transition-all duration-200 text-left group hover:shadow-lg"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className={cn("p-2 rounded-lg text-white", action.color)}>
+                            <action.icon className="w-5 h-5" />
+                          </div>
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                              {action.title}
+                            </h3>
+                            <p className="text-sm text-muted-foreground">{action.description}</p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
                         </div>
-                        <div className="flex-1">
-                          <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
-                            {action.title}
-                          </h3>
-                          <p className="text-sm text-muted-foreground">{action.description}</p>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                      </button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             </div>
 
             {/* Try ARIA Section */}
             <div className="group relative">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/10 to-accent/10 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300" />
               <Card className="relative glass-card border-border/50 transition-all duration-300">
-              <CardHeader>
-                <CardTitle>Chat with ARIA</CardTitle>
-                <CardDescription>Ask me anything about research - I'm here to help!</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-2">
-                  <p className="text-sm font-medium text-foreground">Try asking:</p>
-                  {content.suggestions.map((suggestion, index) => (
-                    <button
-                      key={index}
-                      onClick={() => setChatInput(suggestion)}
-                      className="text-left text-sm p-2 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                    >
-                      • "{suggestion}"
-                    </button>
-                  ))}
-                </div>
+                <CardHeader>
+                  <CardTitle>Chat with ARIA</CardTitle>
+                  <CardDescription>Ask me anything about research - I'm here to help!</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-2">
+                    <p className="text-sm font-medium text-foreground">Try asking:</p>
+                    {content.suggestions.map((suggestion, index) => (
+                      <button
+                        key={index}
+                        onClick={() => setChatInput(suggestion)}
+                        className="text-left text-sm p-2 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                      >
+                        • "{suggestion}"
+                      </button>
+                    ))}
+                  </div>
 
-                <form onSubmit={handleChatSubmit} className="flex gap-2">
-                  <Input
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Ask ARIA anything about research..."
-                    className="glass-card border-border/50 focus:border-primary/50 transition-all duration-200 flex-1"
-                  />
-                  <Button type="submit" className="btn-primary shadow-lg hover:shadow-xl transition-all duration-200">
-                    <MessageSquare className="w-4 h-4" />
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
+                  <form onSubmit={handleChatSubmit} className="flex gap-2">
+                    <Input
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      placeholder="Ask ARIA anything about research..."
+                      className="glass-card border-border/50 focus:border-primary/50 transition-all duration-200 flex-1"
+                    />
+                    <Button type="submit" className="btn-primary shadow-lg hover:shadow-xl transition-all duration-200">
+                      <MessageSquare className="w-4 h-4" />
+                    </Button>
+                  </form>
+                </CardContent>
+              </Card>
             </div>
           </div>
 
@@ -305,32 +305,32 @@ export default function WelcomePage() {
             <div className="group relative">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/10 to-accent/10 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300" />
               <Card className="relative glass-card border-border/50 transition-all duration-300">
-              <CardHeader>
-                <CardTitle className="text-lg">Your Research Profile</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Access Level</span>
-                    <span className="text-sm font-medium text-foreground capitalize">
-                      {userProfile.level} {userProfile.role}
-                    </span>
+                <CardHeader>
+                  <CardTitle className="text-lg">Your Research Profile</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Access Level</span>
+                      <span className="text-sm font-medium text-foreground capitalize">
+                        {userProfile.level} {userProfile.role}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Database</span>
+                      <span className="text-sm font-medium text-primary">{content.stats.papers}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Tools</span>
+                      <span className="text-sm font-medium text-primary">{content.stats.tools}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Network</span>
+                      <span className="text-sm font-medium text-primary">{content.stats.network}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Database</span>
-                    <span className="text-sm font-medium text-primary">{content.stats.papers}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Tools</span>
-                    <span className="text-sm font-medium text-primary">{content.stats.tools}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Network</span>
-                    <span className="text-sm font-medium text-primary">{content.stats.network}</span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
             </div>
 
             {/* Quick Start Guide */}
@@ -375,26 +375,26 @@ export default function WelcomePage() {
             <div className="group relative">
               <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/10 to-accent/10 rounded-xl blur opacity-0 group-hover:opacity-100 transition duration-300" />
               <Card className="relative glass-card border-border/50 transition-all duration-300">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Settings className="w-4 h-4" />
-                  Preferences
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  <Button variant="ghost" className="w-full justify-start text-sm">
-                    Customize Dashboard
-                  </Button>
-                  <Button variant="ghost" className="w-full justify-start text-sm">
-                    Research Interests
-                  </Button>
-                  <Button variant="ghost" className="w-full justify-start text-sm">
-                    Notification Settings
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Settings className="w-4 h-4" />
+                    Preferences
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    <Button variant="ghost" className="w-full justify-start text-sm">
+                      Customize Dashboard
+                    </Button>
+                    <Button variant="ghost" className="w-full justify-start text-sm">
+                      Research Interests
+                    </Button>
+                    <Button variant="ghost" className="w-full justify-start text-sm">
+                      Notification Settings
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </div>

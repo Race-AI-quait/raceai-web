@@ -205,6 +205,13 @@ export default function JarvisPage() {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -1157,46 +1164,119 @@ export default function JarvisPage() {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const drawVisualizer = () => {
+    if (!canvasRef.current || !analyserRef.current) return;
+
+    const canvas = canvasRef.current;
+    const canvasCtx = canvas.getContext("2d");
+    if (!canvasCtx) return;
+
+    const analyser = analyserRef.current;
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+
+    const draw = () => {
+      animationFrameRef.current = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(dataArray);
+
+      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const barWidth = (canvas.width / bufferLength) * 2.5;
+      let barHeight;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        barHeight = dataArray[i] / 2;
+
+        canvasCtx.fillStyle = `rgba(180, 180, 255, ${barHeight / 150})`;
+        canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+
+        x += barWidth + 1;
+      }
+    };
+    draw();
+  };
+
   const handleVoiceInput = async () => {
     if (!isRecording) {
       try {
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-          toast({ title: "Error", description: "Voice input not supported in this browser.", variant: "destructive" });
-          return;
-        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        const recognition = new SpeechRecognition();
-        recognition.continuous = false;
-        recognition.interimResults = false;
-        recognition.lang = 'en-US';
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        const audioContext = new AudioContextClass();
+        audioContextRef.current = audioContext;
+        const analyser = audioContext.createAnalyser();
+        analyserRef.current = analyser;
+        analyser.fftSize = 256;
 
-        recognition.onstart = () => {
-          setIsRecording(true);
+        const source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        drawVisualizer();
+
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
         };
 
-        recognition.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
-          setInputMessage(prev => prev + (prev ? " " : "") + transcript);
+        mediaRecorder.onstop = async () => {
+          setIsTranscribing(true);
+          const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+
+          try {
+            setInputMessage(prev => prev + (prev ? " " : "") + "Transcribing audio...");
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'audio.webm');
+
+            const res = await fetch('/api/speech-to-text', {
+              method: 'POST',
+              body: formData,
+            });
+
+            // Strip "Transcribing audio..." text
+            setInputMessage(prev => prev.replace("Transcribing audio...", ""));
+
+            if (res.ok) {
+              const data = await res.json();
+              setInputMessage(prev => prev + (prev ? " " : "") + data.text);
+            } else {
+              toast({ title: 'Error', description: 'Failed to transcribe audio.', variant: 'destructive' });
+            }
+          } catch (e) {
+            console.error(e);
+            setInputMessage(prev => prev.replace("Transcribing audio...", ""));
+            toast({ title: 'Error', description: 'Failed to transcribe audio.', variant: 'destructive' });
+          } finally {
+            setIsTranscribing(false);
+          }
         };
 
-        recognition.onerror = (event: any) => {
-          console.error("Voice error:", event.error);
-          setIsRecording(false);
-        };
-
-        recognition.onend = () => {
-          setIsRecording(false);
-        };
-
-        recognition.start();
-
+        mediaRecorder.start();
+        setIsRecording(true);
       } catch (error) {
         console.error("Error accessing microphone:", error);
+        toast({ title: "Microphone Access Denied", description: "Please allow microphone permissions.", variant: "destructive" });
         setIsRecording(false);
       }
     } else {
-      // Manual stop logic if we wanted, usually handled by 'end' event or stop()
+      if (mediaRecorderRef.current && isRecording) {
+        mediaRecorderRef.current.stop();
+        mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
       setIsRecording(false);
     }
   };
@@ -1378,12 +1458,12 @@ export default function JarvisPage() {
 
   return (
     <div
-      className="h-screen flex bg-background dark:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] dark:from-[#3b82f640] dark:via-[#0B1120] dark:to-black relative overflow-hidden"
+      className="h-screen flex bg-background dark:bg-[#181818] relative overflow-hidden"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="dark:block hidden">
+      <div className="dark:hidden block absolute inset-0 z-0 pointer-events-none">
         <GeometricBackground variant="orb" />
       </div>
 
@@ -1399,7 +1479,7 @@ export default function JarvisPage() {
       <NavigationSidebar />
 
       {/* Chat Sidebar */}
-      <div className="hidden md:flex md:w-80 lg:w-96 bg-background/50 backdrop-blur-sm flex-col relative z-10 border-r border-black/5 dark:border-white/5">
+      <div className="hidden md:flex md:w-80 lg:w-96 bg-[#f9f9f9] dark:bg-[#1e1f20] dark text-foreground flex-col relative z-10 border-r border-white/5">
         {/* Sidebar Header */}
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
@@ -2439,13 +2519,13 @@ export default function JarvisPage() {
 
             {/* Input Container */}
             <div
-              className={`w-full flex items-end gap-3 transition-all relative ${isDragging
-                ? "ring-2 ring-primary ring-offset-2 rounded-[32px]"
+              className={`w-full bg-white dark:bg-[#1E1F20] rounded-3xl border border-border/50 shadow-sm flex flex-col relative overflow-hidden transition-all focus-within:ring-1 focus-within:ring-border/50 ${isDragging
+                ? "ring-2 ring-primary ring-offset-2"
                 : ""
                 }`}
             >
               {isDragging && (
-                <div className="absolute inset-0 bg-primary/10 backdrop-blur-sm rounded-[32px] flex items-center justify-center z-10 pointer-events-none">
+                <div className="absolute inset-0 bg-primary/10 backdrop-blur-sm flex items-center justify-center z-10 pointer-events-none">
                   <div className="text-primary font-semibold text-lg flex items-center gap-2">
                     <Paperclip size={20} />
                     Drop files here
@@ -2453,21 +2533,26 @@ export default function JarvisPage() {
                 </div>
               )}
 
-              <div className="flex-1 relative min-w-0 shadow-xl rounded-2xl bg-card/40 backdrop-blur-xl ring-0 focus-within:ring-0 focus-within:bg-card/60 transition-all duration-300">
-                <Textarea
-                  value={inputMessage}
-                  onChange={(e) => setInputMessage(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  placeholder="Ask any question..."
-                  className="w-full min-h-[60px] py-4 pl-5 pr-32 text-base bg-transparent border-none focus-visible:ring-0 resize-none max-h-[200px] placeholder:text-muted-foreground/50"
-                  disabled={isLoading}
-                />
-                <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
+              <Textarea
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                placeholder="Ask any question..."
+                className="w-full bg-transparent text-foreground placeholder-muted-foreground border-none resize-none focus:outline-none focus:ring-0 focus-visible:ring-0 p-4 pb-16 min-h-[120px] text-lg max-h-[200px] overflow-y-auto placeholder:text-muted-foreground/50 shadow-none"
+                style={{ minHeight: '120px' }}
+                disabled={isLoading}
+              />
+              <canvas
+                ref={canvasRef}
+                className={`w-full h-12 absolute bottom-14 left-0 pointer-events-none transition-opacity duration-300 ${isRecording ? 'opacity-100' : 'opacity-0'}`}
+              />
+              <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
+                <div className="flex items-center gap-1 sm:gap-2">
                   <input
                     type="file"
                     ref={fileInputRef}
@@ -2476,50 +2561,45 @@ export default function JarvisPage() {
                     accept=".pdf,.doc,.docx,.txt,.md,.json,.js,.ts,.tsx,image/*,audio/*,video/*"
                     multiple
                   />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-blue-700 dark:text-white hover:text-foreground h-10 w-10 rounded-lg hover:bg-accent transition-all duration-300 ease-out hover:scale-125 active:scale-95"
+                  <button
+                    className="p-2 text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors cursor-pointer"
                     disabled={isLoading}
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <Paperclip size={20} />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className={`text-blue-700 dark:text-white hover:text-foreground h-10 w-10 rounded-lg hover:bg-accent transition-all duration-300 ease-out hover:scale-125 active:scale-95 ${isRecording ? "text-destructive animate-pulse" : ""
+                  </button>
+                  <button
+                    className={`p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors cursor-pointer ${isRecording ? "text-destructive" : "text-muted-foreground"
                       }`}
                     disabled={isLoading}
                     onClick={handleVoiceInput}
                   >
-                    <Mic size={20} />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className={`text-blue-700 dark:text-muted-foreground hover:text-foreground h-10 w-10 rounded-lg hover:bg-accent transition-all duration-300 ease-out hover:scale-125 active:scale-95 ${showWhiteboard ? "text-primary bg-primary/10" : ""}`}
+                    {isRecording ? <StopCircle size={20} className="animate-pulse" /> : <Mic size={20} />}
+                  </button>
+                  <button
+                    className={`p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full transition-colors cursor-pointer ${showWhiteboard ? "text-primary bg-primary/10" : "text-muted-foreground"}`}
                     disabled={isLoading}
                     onClick={handleWhiteboard}
                     title="Whiteboard"
                   >
                     <Presentation size={20} />
-                  </Button>
+                  </button>
+                </div>
 
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={isLoading ? handleStopGeneration : handleSendMessage}
+                    disabled={!inputMessage.trim() && !isLoading}
+                    className="p-2 h-10 w-10 shrink-0 rounded-full bg-foreground text-background disabled:opacity-50 disabled:bg-muted-foreground/30 disabled:text-muted-foreground transition-all cursor-pointer hover:bg-foreground/90 flex items-center justify-center"
+                  >
+                    {isLoading ? (
+                      <StopCircle size={20} className="animate-pulse" />
+                    ) : (
+                      <Send size={18} className="-ml-0.5" />
+                    )}
+                  </button>
                 </div>
               </div>
-
-              <Button
-                onClick={isLoading ? handleStopGeneration : handleSendMessage}
-                disabled={!inputMessage.trim() && !isLoading}
-                className={`h-14 md:h-14 w-14 md:w-14 rounded-xl flex-shrink-0 transition-all hover:scale-105 ${isLoading ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground" : "bg-primary hover:bg-primary/90 text-primary-foreground"}`}
-              >
-                {isLoading ? (
-                  <StopCircle size={22} className="animate-pulse" />
-                ) : (
-                  <Send size={22} />
-                )}
-              </Button>
             </div>
 
 
@@ -2574,7 +2654,7 @@ export default function JarvisPage() {
                 <div className="space-y-3">
                   <Button
                     variant="outline"
-                    className="w-full justify-start bg-white dark:bg-black/20 hover:bg-primary/5 hover:border-primary/30 cursor-pointer h-16 border-border/50 transition-all group shadow-sm"
+                    className="w-full justify-start bg-white dark:bg-[#181818]/50 hover:bg-primary/5 hover:border-primary/30 cursor-pointer h-16 border-border/50 transition-all group shadow-sm"
                     style={{ pointerEvents: 'auto' }}
                     onClick={() =>
                       handleShare(showShareModal, { type: "external" })
@@ -2593,7 +2673,7 @@ export default function JarvisPage() {
                   </Button>
                   <Button
                     variant="outline"
-                    className="w-full justify-start bg-white dark:bg-black/20 hover:bg-primary/5 hover:border-primary/30 cursor-pointer h-16 border-border/50 transition-all group shadow-sm"
+                    className="w-full justify-start bg-white dark:bg-[#181818]/50 hover:bg-primary/5 hover:border-primary/30 cursor-pointer h-16 border-border/50 transition-all group shadow-sm"
                     style={{ pointerEvents: 'auto' }}
                     onClick={() =>
                       handleShare(showShareModal, { type: "collaborator" })

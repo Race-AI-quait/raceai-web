@@ -210,7 +210,7 @@ export default function SOTAProblemsPage() {
 
   return (
     <div className="h-screen overflow-y-hidden flex relative">
-      <div className="dark:block hidden">
+      <div className="dark:hidden absolute inset-0 z-0 pointer-events-none">
         <GeometricBackground variant="tesseract" />
       </div>
       <NavigationSidebar />

@@ -24,7 +24,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         try {
           // connect to backend
-          const res = await fetch("http://localhost:5001/auth/signin", {
+          const res = await fetch("http://localhost:5005/auth/signin", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

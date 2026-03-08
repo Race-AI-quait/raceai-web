@@ -95,7 +95,7 @@ export default function NavigationSidebar() {
   }
 
   return (
-    <div className="w-16 glass-card flex flex-col items-center pt-2 pb-4 relative z-50">
+    <div className="w-16 bg-[#f9f9f9] dark:bg-[#1e1f20] flex flex-col items-center pt-2 pb-4 relative z-50">
       {/* Logo */}
       <div className="mb-8 cursor-pointer" onClick={handleLogoClick}>
         <ModernLogo size={50} showText={false} />

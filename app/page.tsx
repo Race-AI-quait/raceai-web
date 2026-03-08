@@ -650,7 +650,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen relative flex items-center justify-center">
       {/* Unified Background: Moving + Rubber Band Physics */}
-      <div className="fixed inset-0 z-0 bg-background dark:bg-[radial-gradient(circle_at_50%_50%,#0f172a_0%,#020617_100%)]">
+      <div className="fixed inset-0 z-0 bg-background dark:bg-[#181818]">
         <UnifiedInteractiveGrid />
       </div>
 
